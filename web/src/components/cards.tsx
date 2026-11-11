@@ -47,7 +47,8 @@ export const APPROVAL_COPY: Record<ApprovalKind, { label: string; icon: IconName
   other: { label: 'Needs your OK', icon: 'shield' },
 };
 
-const RESOLVED: Record<Exclude<Approval['status'], 'pending'>, string> = {
+const RESOLVED: Record<Approval['status'], string> = {
+  pending: 'Waiting for you',
   approved: 'Approved',
   denied: 'Denied',
   expired: 'Expired — nothing was done',
