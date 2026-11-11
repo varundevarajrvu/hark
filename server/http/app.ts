@@ -1,7 +1,7 @@
 import { existsSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import Fastify from 'fastify';
+import Fastify, { LogController } from 'fastify';
 import type { FastifyError, FastifyInstance } from 'fastify';
 import cookie from '@fastify/cookie';
 import rateLimit from '@fastify/rate-limit';
@@ -27,7 +27,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     // Fastify's own request logging is off; one concise line per API response is written below.
     // Neither includes headers (cookies) or bodies.
     logger: process.env.VITEST ? false : { level: 'info' },
-    disableRequestLogging: true,
+    logController: new LogController({ disableRequestLogging: true }),
     bodyLimit: 256 * 1024,
   });
   const ctx: AppContext = { ...deps, streams: createStreamRegistry() };
@@ -115,7 +115,11 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
 function originAllowed(origin: string, host: string | undefined): boolean {
   if (config.publicOrigin && origin === config.publicOrigin.replace(/\/+$/, '')) return true;
   try {
-    return host !== undefined && new URL(origin).host.toLowerCase() === host.toLowerCase();
+    if (host === undefined) return false;
+    const url = new URL(origin);
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') return false;
+    // Parse Host the same way so a default port (":80", ":443") compares equal to its absence.
+    return url.host === new URL(`${url.protocol}//${host}`).host;
   } catch {
     return false; // "null" (sandboxed frames, e.g. a panel) and garbage
   }

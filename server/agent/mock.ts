@@ -16,7 +16,7 @@ export function defaultLlm(): LlmClient {
 export function createOfflineClient(): LlmClient {
   return {
     async runTurn(req) {
-      const isBrowserAgent = req.tools.some((t) => t.name === 'finish');
+      const isBrowserAgent = req.tools.some((t) => 'name' in t && t.name === 'finish');
       const content = isBrowserAgent ? browserScript(req.messages) : orchestratorScript(req.messages);
       for (const block of content) {
         if (block.type !== 'text') continue;

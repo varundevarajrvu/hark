@@ -98,6 +98,7 @@ export function toolUseBlock(name: string, input: unknown, id?: string): LlmBloc
 // ───────────────────────── the real client ─────────────────────────
 
 const MAX_TOKENS = 64_000;
+type StreamBody = Parameters<Anthropic['beta']['messages']['stream']>[0];
 
 export function createAnthropicClient(): LlmClient {
   let client: Anthropic | null = null;
@@ -109,7 +110,7 @@ export function createAnthropicClient(): LlmClient {
       client ??= new Anthropic();
 
       const betas: string[] = [];
-      const body: Anthropic.Beta.BetaMessageStreamParams = {
+      const body: StreamBody = {
         model: config.model,
         max_tokens: MAX_TOKENS,
         // Thinking is always on for this model family: no `thinking`, no sampling parameters, tool_choice auto.

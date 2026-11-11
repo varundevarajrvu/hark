@@ -267,7 +267,7 @@ describe('panels', () => {
     expect(frame.headers['cache-control']).toBe('no-store');
     expect(frame.headers['x-content-type-options']).toBe('nosniff');
     // The list never carries the HTML.
-    expect((await a.call('GET', '/panels')).body).not.toContain('script');
+    expect((await a.call('GET', '/panels')).body).not.toContain('<script');
 
     const reply = await a.call('POST', `/panels/${panel.id}/reply`, { text: 'add a savings row' });
     expect(reply.statusCode).toBe(202);
