@@ -69,3 +69,20 @@ export function threadHref(threadId: Id | null): string {
   const project = s.projects.find((p) => p.threadId === threadId);
   return project ? `#/project/${encodeURIComponent(project.id)}` : `#/thread/${encodeURIComponent(threadId)}`;
 }
+
+/**
+ * Follow a link that sits inside an overlay (sheet, menu). The overlay owns a history entry; closing it
+ * pops that entry asynchronously, so navigate only once it is gone — otherwise Back would need two presses.
+ */
+export function navigateFromOverlay(hash: string, close: () => void): void {
+  close();
+  let done = false;
+  const go = () => {
+    if (done) return;
+    done = true;
+    window.removeEventListener('popstate', go);
+    navigate(hash);
+  };
+  window.addEventListener('popstate', go);
+  window.setTimeout(go, 300);
+}

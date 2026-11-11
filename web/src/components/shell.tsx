@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { boot } from '../actions.ts';
-import type { Route } from '../router.ts';
+import { navigateFromOverlay, type Route } from '../router.ts';
 import { pendingApprovals, setState, useStore } from '../store.ts';
 import { ApprovalCard } from './cards.tsx';
-import { Dialog, Icon, Mark, Toasts, type IconName } from './ui.tsx';
+import { Dialog, Icon, Mark, Toasts, useBackToClose, type IconName } from './ui.tsx';
 
 interface NavItem {
   href: string;
@@ -50,7 +50,16 @@ function ApprovalsTray() {
         <div className="stack">
           <p className="muted">Vector has paused on each of these. Nothing is spent, sent or signed in to until you approve.</p>
           {pending.map((a) => (
-            <div key={a.id} onClick={(e) => (e.target as HTMLElement).closest('a') && setTray(false)}>
+            <div
+              key={a.id}
+              onClick={(e) => {
+                const link = (e.target as HTMLElement).closest('a');
+                const href = link?.getAttribute('href');
+                if (!href) return;
+                e.preventDefault();
+                navigateFromOverlay(href, () => setTray(false));
+              }}
+            >
               <ApprovalCard approval={a} showThreadLink />
             </div>
           ))}
@@ -94,6 +103,32 @@ function StatusLines() {
           Connection lost. Reconnecting — live updates are paused.
         </p>
       ) : null}
+    </>
+  );
+}
+
+function MoreMenu({ route, onClose }: { route: Route; onClose: () => void }) {
+  useBackToClose(onClose);
+  return (
+    <>
+      <div className="more-scrim" onClick={onClose} />
+      <ul className="more-menu" id="more-menu">
+        {MORE.map((item) => (
+          <li key={item.href}>
+            <a
+              href={item.href}
+              aria-current={item.match.includes(route.name) ? 'page' : undefined}
+              onClick={(e) => {
+                e.preventDefault();
+                navigateFromOverlay(item.href, onClose);
+              }}
+            >
+              <Icon name={item.icon} />
+              {item.label}
+            </a>
+          </li>
+        ))}
+      </ul>
     </>
   );
 }
@@ -227,21 +262,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
           <Icon name="more" size={20} />
           <span>More</span>
         </button>
-        {moreOpen ? (
-          <>
-            <div className="more-scrim" onClick={() => setMoreOpen(false)} />
-            <ul className="more-menu" id="more-menu">
-              {MORE.map((item) => (
-                <li key={item.href}>
-                  <a href={item.href} aria-current={current(item)} onClick={() => setMoreOpen(false)}>
-                    <Icon name={item.icon} />
-                    {item.label}
-                  </a>
-                </li>
-              ))}
-            </ul>
-          </>
-        ) : null}
+        {moreOpen ? <MoreMenu route={route} onClose={() => setMoreOpen(false)} /> : null}
       </nav>
 
       {trayOpen ? <ApprovalsTray /> : null}

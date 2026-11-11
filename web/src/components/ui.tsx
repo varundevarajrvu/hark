@@ -161,6 +161,36 @@ export function Loading({ label = 'Loading' }: { label?: string }) {
 
 // ───────────────────────── Dialogs ─────────────────────────
 
+let overlaySeq = 0;
+/**
+ * Makes the system back button (Android) close an overlay before it leaves the page: opening pushes a
+ * history entry with the same URL, and going back pops it and closes the overlay. The hash router only
+ * listens to `hashchange`, which a same-URL entry never fires.
+ */
+export function useBackToClose(onClose: () => void): void {
+  const latest = useRef(onClose);
+  latest.current = onClose;
+  useEffect(() => {
+    const token = ++overlaySeq;
+    const state: unknown = window.history.state;
+    window.history.pushState({ ...(state && typeof state === 'object' ? state : {}), vectorOverlay: token }, '');
+    let popped = false;
+    const onPop = () => {
+      const current = window.history.state as { vectorOverlay?: number } | null;
+      if (current?.vectorOverlay !== undefined && current.vectorOverlay >= token) return; // an overlay above this one closed
+      popped = true;
+      latest.current();
+    };
+    window.addEventListener('popstate', onPop);
+    return () => {
+      window.removeEventListener('popstate', onPop);
+      const current = window.history.state as { vectorOverlay?: number } | null;
+      // Closed by a button, not by going back: drop our entry — unless the app has already navigated on.
+      if (!popped && current?.vectorOverlay === token) window.history.back();
+    };
+  }, []);
+}
+
 export function Dialog(props: {
   title: string;
   onClose: () => void;
@@ -170,6 +200,7 @@ export function Dialog(props: {
 }) {
   const ref = useRef<HTMLDialogElement>(null);
   const titleId = useId();
+  useBackToClose(props.onClose);
   useEffect(() => {
     const dialog = ref.current;
     if (dialog && !dialog.open) dialog.showModal();

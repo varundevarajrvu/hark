@@ -1,0 +1,27 @@
+# Build outputs and Gradle state
+.gradle/
+build/
+**/build/
+.kotlin/
+captures/
+.externalNativeBuild/
+.cxx/
+
+# Machine-local configuration (SDK path)
+local.properties
+
+# IDE
+.idea/
+*.iml
+
+# Signing material: never commit keystores or passwords
+*.jks
+*.keystore
+*.p12
+*.pfx
+keystore.properties
+
+# Built packages
+*.apk
+*.aab
+*.ap_
