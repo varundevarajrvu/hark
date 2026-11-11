@@ -25,6 +25,13 @@ export const config = {
   allowSignup: env.VECTOR_ALLOW_SIGNUP !== '0',
   /** Public origin (scheme://host[:port]) used for Origin checks. Empty = same-host check. */
   publicOrigin: env.VECTOR_PUBLIC_ORIGIN ?? '',
+  /**
+   * Mark the session cookie Secure. True when the public origin is https. A phone reaching the
+   * server over plain http on home Wi-Fi needs this off, or the browser drops the cookie.
+   */
+  secureCookies: (env.VECTOR_PUBLIC_ORIGIN ?? '').startsWith('https://'),
+  /** Set to 1 when running behind a reverse proxy, so client IPs come from X-Forwarded-For. */
+  trustProxy: env.VECTOR_TRUST_PROXY === '1',
 };
 
 export function hasLlmCredentials(): boolean {

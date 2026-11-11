@@ -29,6 +29,7 @@ export async function buildApp(deps: AppDeps): Promise<FastifyInstance> {
     logger: process.env.VITEST ? false : { level: 'info' },
     logController: new LogController({ disableRequestLogging: true }),
     bodyLimit: 256 * 1024,
+    trustProxy: config.trustProxy,
   });
   const ctx: AppContext = { ...deps, streams: createStreamRegistry() };
 

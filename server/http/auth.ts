@@ -73,12 +73,12 @@ function startSession(reply: FastifyReply, userId: Id): void {
   const token = randomBytes(32).toString('base64url');
   sessions.create(hashToken(token), userId, new Date(Date.now() + SESSION_TTL_S * 1000));
   reply.setCookie(SESSION_COOKIE, token, {
-    httpOnly: true, sameSite: 'strict', path: '/', secure: config.isProd, maxAge: SESSION_TTL_S,
+    httpOnly: true, sameSite: 'strict', path: '/', secure: config.secureCookies, maxAge: SESSION_TTL_S,
   });
 }
 
 export function clearSessionCookie(reply: FastifyReply): void {
-  reply.clearCookie(SESSION_COOKIE, { httpOnly: true, sameSite: 'strict', path: '/', secure: config.isProd });
+  reply.clearCookie(SESSION_COOKIE, { httpOnly: true, sameSite: 'strict', path: '/', secure: config.secureCookies });
 }
 
 /** onRequest hook for every authenticated route. */
