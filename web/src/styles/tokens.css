@@ -1,18 +1,30 @@
-/* Design tokens. One accent (ultramarine), warm paper neutrals, system type. Light first; dark follows the OS. */
+/*
+ * Vector — "signal on ink".
+ * Three voices: display (Bricolage Grotesque) is what matters to you, text (Geist) is Vector speaking,
+ * mono (Geist Mono) is the machine reporting on itself.
+ * One signal colour (lime) = live / go / yours to press. One consent colour (amber) = waiting for your OK.
+ * Dark is the hero theme; light is paper and ink, with lime only ever as a fill behind ink.
+ */
 :root {
-  color-scheme: light dark;
+  color-scheme: dark;
 
-  --font: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
-  --mono: ui-monospace, 'SF Mono', 'Cascadia Mono', 'Roboto Mono', Menlo, Consolas, monospace;
+  --display: 'Bricolage Grotesque Variable', ui-sans-serif, system-ui, sans-serif;
+  --text: 'Geist Variable', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
+  --mono: 'Geist Mono Variable', ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
 
-  --t-xs: 0.75rem;
-  --t-sm: 0.8125rem;
-  --t-base: 0.9375rem;
-  --t-md: 1.0625rem;
-  --t-lg: 1.25rem;
-  --t-xl: 1.625rem;
-  --t-2xl: 2rem;
+  /* type scale */
+  --f-label: 0.6875rem; /* 11 — mono labels */
+  --f-xs: 0.75rem;
+  --f-sm: 0.8125rem;
+  --f-base: 0.9375rem;
+  --f-read: 1rem;
+  --f-md: 1.125rem;
+  --f-lg: 1.375rem;
+  --f-xl: 1.75rem;
+  --f-2xl: 2.5rem;
+  --f-3xl: 3.25rem;
 
+  /* spacing */
   --s-1: 4px;
   --s-2: 8px;
   --s-3: 12px;
@@ -21,68 +33,136 @@
   --s-6: 32px;
   --s-7: 48px;
 
-  --r-sm: 6px;
-  --r-md: 10px;
-  --r-lg: 14px;
-  --r-full: 999px;
+  /* radius system: tags, controls, cards, pills */
+  --r-tag: 5px;
+  --r-ctl: 12px;
+  --r-card: 18px;
+  --r-pill: 999px;
 
-  --bg: #f5f4f0;
-  --surface: #ffffff;
-  --surface-2: #eceae4;
-  --ink: #16171b;
-  --ink-2: #45474f;
-  --ink-3: #62646d;
-  --line: #dedbd3;
-  --line-strong: #b9b5aa;
+  /* ink */
+  --bg: #0b0d0c;
+  --s1: #131614;
+  --s2: #1a1e1b;
+  --s3: #232823;
+  --line: #262b27;
+  --line-2: #3a413b;
+  --fg: #f2f4ee;
+  --muted: #9ba39a;
 
-  --accent: #2a3bd6;
-  --accent-hover: #1f2eb8;
-  --accent-ink: #ffffff;
-  --accent-soft: #e7e9fb;
-  --accent-text: #2433c2;
+  --lime: #c8ff2e;
+  --ink: #0b0d0c;
 
-  --ok: #17693f;
-  --ok-soft: #e1f2e8;
-  --warn: #7a4d00;
-  --warn-soft: #fbefd2;
-  --warn-line: #e5c880;
-  --danger: #b3261e;
-  --danger-hover: #951d17;
-  --danger-soft: #fbe9e7;
+  /* signal: live / go / yours to press */
+  --go-bg: var(--lime);
+  --go-fg: var(--ink);
+  --go-bg-press: #b4ea1e;
+  --live: var(--lime); /* text and glyphs that say "live" */
+  --live-tint: rgb(200 255 46 / 0.09);
+  --live-line: rgb(200 255 46 / 0.38);
+  --focus: var(--lime);
 
-  --shadow: 0 1px 2px rgb(22 23 27 / 0.06), 0 8px 24px rgb(22 23 27 / 0.08);
-  --scrim: rgb(22 23 27 / 0.45);
-  --rail-w: 232px;
+  /* consent: anything waiting for your OK */
+  --consent: #ffb020;
+  --consent-fg: #ffb020;
+  --consent-on: #1c1200;
+  --consent-tint: #241b0a;
+  --consent-line: #5c4310;
+
+  --danger: #ff7a66;
+  --danger-tint: #2a1512;
+  --danger-bg: #ff6b57;
+  --danger-on: #1c0502;
+  --ok: #6fe6ad;
+  --ok-tint: #10231a;
+
+  --you-bg: rgb(200 255 46 / 0.1);
+  --you-line: rgb(200 255 46 / 0.34);
+  --you-fg: var(--fg);
+
+  --tick: rgb(242 244 238 / 0.13);
+  --glass: rgb(19 22 20 / 0.78);
+  --scrim: rgb(0 0 0 / 0.66);
+  --inner: inset 0 1px 0 rgb(255 255 255 / 0.05);
+  --lift: 0 18px 48px rgb(0 0 0 / 0.55);
+
   --app-height: 100dvh;
+  --dock-h: 62px;
+  --dock-gap: 10px;
+  --dock-space: calc(var(--dock-h) + var(--dock-gap) * 2 + env(safe-area-inset-bottom));
 }
 
-@media (prefers-color-scheme: dark) {
+/* paper */
+@media (prefers-color-scheme: light) {
   :root {
-    --bg: #0f1013;
-    --surface: #17181d;
-    --surface-2: #202228;
-    --ink: #ececef;
-    --ink-2: #b9bbc5;
-    --ink-3: #9799a4;
-    --line: #2b2d35;
-    --line-strong: #4a4d58;
+    color-scheme: light;
+    --bg: #f1efe7;
+    --s1: #fbfaf5;
+    --s2: #e7e4d8;
+    --s3: #dcd8ca;
+    --line: #d6d2c3;
+    --line-2: #aea995;
+    --fg: #10130f;
+    --muted: #555b52;
 
-    --accent: #96a2ff;
-    --accent-hover: #aeb8ff;
-    --accent-ink: #0b0d1a;
-    --accent-soft: #1d2145;
-    --accent-text: #aab4ff;
+    --go-bg: #10130f;
+    --go-fg: #f1efe7;
+    --go-bg-press: #2a2e28;
+    --live: #10130f;
+    --live-tint: rgb(16 19 15 / 0.05);
+    --live-line: rgb(16 19 15 / 0.45);
+    --focus: #10130f;
 
-    --ok: #6ad6a0;
-    --ok-soft: #12291d;
-    --warn: #f0c466;
-    --warn-soft: #2e250e;
-    --warn-line: #6b5520;
-    --danger: #ff8f85;
-    --danger-hover: #ffaca4;
-    --danger-soft: #3a1917;
+    --consent: #ffb020;
+    --consent-fg: #7d4a00;
+    --consent-on: #1c1200;
+    --consent-tint: #f9e9c4;
+    --consent-line: #d9a842;
 
-    --shadow: 0 1px 2px rgb(0 0 0 / 0.4), 0 8px 24px rgb(0 0 0 / 0.45);
-    --scrim: rgb(0 0 0 / 0.6);
+    --danger: #ad2010;
+    --danger-tint: #f7ddd6;
+    --danger-bg: #ad2010;
+    --danger-on: #fbfaf5;
+    --ok: #0b6440;
+    --ok-tint: #d9eedf;
+
+    --you-bg: #10130f;
+    --you-line: #10130f;
+    --you-fg: #f1efe7;
+
+    --tick: rgb(16 19 15 / 0.13);
+    --glass: rgb(251 250 245 / 0.82);
+    --scrim: rgb(16 19 15 / 0.5);
+    --inner: inset 0 1px 0 rgb(255 255 255 / 0.7);
+    --lift: 0 18px 48px rgb(16 19 15 / 0.18);
   }
+}
+
+/* A surface that is ink in both themes (auth, the vault door, the browser frame). */
+.on-ink {
+  color-scheme: dark;
+  --bg: #0b0d0c;
+  --s1: #131614;
+  --s2: #1a1e1b;
+  --s3: #232823;
+  --line: #262b27;
+  --line-2: #3a413b;
+  --fg: #f2f4ee;
+  --muted: #9ba39a;
+  --go-bg: #c8ff2e;
+  --go-fg: #0b0d0c;
+  --go-bg-press: #b4ea1e;
+  --live: #c8ff2e;
+  --live-tint: rgb(200 255 46 / 0.09);
+  --live-line: rgb(200 255 46 / 0.38);
+  --focus: #c8ff2e;
+  --consent-fg: #ffb020;
+  --consent-tint: #241b0a;
+  --consent-line: #5c4310;
+  --danger: #ff7a66;
+  --danger-tint: #2a1512;
+  --ok: #6fe6ad;
+  --ok-tint: #10231a;
+  --tick: rgb(242 244 238 / 0.13);
+  --inner: inset 0 1px 0 rgb(255 255 255 / 0.05);
+  color: var(--fg);
 }
