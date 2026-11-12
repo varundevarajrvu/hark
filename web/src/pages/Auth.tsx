@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { signIn, signUp } from '../actions.ts';
 import { errorText } from '../api.ts';
-import { ErrorNote, Icon, Mark, Spinner } from '../components/ui.tsx';
+import { ErrorNote, Mark, Spinner } from '../components/ui.tsx';
 
 const MIN_PASSWORD = 10;
 
@@ -37,37 +37,28 @@ export function AuthPage() {
   };
 
   return (
-    <div className="auth">
-      <section className="auth-brand" aria-label="About Vector">
-        <div className="auth-brand-top">
-          <span className="brand-mark brand-mark-lg">
-            <Mark size={26} />
-          </span>
-          <span className="brand-name">Vector</span>
-        </div>
-        <div>
-          <h1>One assistant. One thread. Things actually get done.</h1>
-          <ul className="auth-points">
-            <li>
-              <Icon name="arrow" size={16} />
-              It remembers what you tell it and acts on your behalf.
-            </li>
-            <li>
-              <Icon name="arrow" size={16} />
-              You watch every step, and you can stop it at any time.
-            </li>
-            <li>
-              <Icon name="arrow" size={16} />
-              It asks before it spends, sends or signs in.
-            </li>
-          </ul>
-        </div>
-        <p className="auth-foot">Self-hosted. Your data stays on this server.</p>
+    <div className="auth on-ink">
+      <div className="vfield" aria-hidden="true" />
+      <section className="auth-door" aria-label="About Vector">
+        <p className="auth-brand">
+          <Mark size={30} />
+          <span>Vector</span>
+        </p>
+        <h1 className="auth-line">
+          Say it once.
+          <br />
+          Consider it <span className="auth-done">done.</span>
+        </h1>
+        <ul className="auth-points label">
+          <li>One thread that remembers</li>
+          <li>Every step visible, always stoppable</li>
+          <li>Asks before it spends, sends or signs in</li>
+        </ul>
       </section>
 
-      <main className="auth-main">
-        <form className="auth-form" onSubmit={(e) => void submit(e)} noValidate={false}>
-          <h2>{creating ? 'Create your account' : 'Sign in'}</h2>
+      <main className="auth-sheet">
+        <form className="auth-form" onSubmit={(e) => void submit(e)}>
+          <h2 className="sr-only">{creating ? 'Create your account' : 'Sign in'}</h2>
           <div className="segmented" role="group" aria-label="Sign in or create an account">
             <button type="button" aria-pressed={!creating} onClick={() => switchTo('in')}>
               Sign in
@@ -88,7 +79,7 @@ export function AuthPage() {
             <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" required inputMode="email" />
           </label>
           <label className="field">
-            <span>Password</span>
+            <span>Password{creating ? ` · ${MIN_PASSWORD}+ characters` : ''}</span>
             <input
               type="password"
               value={password}
@@ -96,20 +87,16 @@ export function AuthPage() {
               autoComplete={creating ? 'new-password' : 'current-password'}
               required
               minLength={creating ? MIN_PASSWORD : undefined}
-              aria-describedby={creating ? 'pw-hint' : undefined}
             />
-            {creating ? (
-              <small id="pw-hint" className="hint">
-                At least {MIN_PASSWORD} characters.
-              </small>
-            ) : null}
           </label>
 
           <ErrorNote>{error}</ErrorNote>
-          <button type="submit" className="btn btn-primary btn-block" disabled={busy}>
+          <button type="submit" className="btn btn-primary btn-block btn-verb" disabled={busy}>
             {busy ? <Spinner /> : null}
             {creating ? 'Create account' : 'Sign in'}
+            <span aria-hidden="true">→</span>
           </button>
+          <p className="label auth-foot">Self-hosted · your data stays on this server</p>
         </form>
       </main>
     </div>

@@ -80,19 +80,18 @@ export function ProjectPage({ projectId }: { projectId: Id }) {
       <ThreadView
         key={project.threadId}
         threadId={project.threadId}
-        title={project.name}
-        subtitle={project.description || 'Project thread'}
-        emptyTitle={`Start on “${project.name}”.`}
-        emptyBody="Everything said here stays in this project. Say where you want to get to, or try one:"
-        headerActions={
-          <div className="thread-head-actions">
+        emptyTitle="Where to?"
+        emptyBody={`Everything said here stays in “${project.name}”. Say where you want to get to.`}
+        strip={
+          <>
+            <span className="label">Project{project.description ? ` · ${project.description}` : ''}</span>
             <button type="button" className="icon-btn" aria-label="Edit project" onClick={() => setEditing(true)}>
               <Icon name="edit" />
             </button>
             <button type="button" className="icon-btn" aria-label="Delete project" onClick={() => setDeleting(true)}>
               <Icon name="trash" />
             </button>
-          </div>
+          </>
         }
       />
       {editing ? <ProjectDialog project={project} onClose={() => setEditing(false)} /> : null}

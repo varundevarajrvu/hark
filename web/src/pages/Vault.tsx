@@ -131,9 +131,7 @@ function VaultForm({ onSaved }: { onSaved: () => void }) {
 
       <ErrorNote>{error}</ErrorNote>
       <div className="vault-form-foot">
-        <p className="muted small">
-          <Icon name="vault" size={14} /> Write-only. After you save, nobody can read this back — not you, not this browser, not the AI model.
-        </p>
+        <p className="label">Write-only · cannot be viewed after saving</p>
         <button type="submit" className="btn btn-primary" disabled={busy}>
           {busy ? <Spinner /> : null}
           Save to vault
@@ -146,7 +144,7 @@ function VaultForm({ onSaved }: { onSaved: () => void }) {
 function VaultRow({ item }: { item: VaultItem }) {
   const [deleting, setDeleting] = useState(false);
   return (
-    <li className="row">
+    <li className="row vault-row">
       <span className="row-icon">
         <Icon name={KIND_ICON[item.kind] ?? 'vault'} />
       </span>
@@ -154,8 +152,8 @@ function VaultRow({ item }: { item: VaultItem }) {
         <p className="row-title">{item.label}</p>
         <p className="row-sub">
           <span className="tag">{KIND_LABEL[item.kind] ?? item.kind}</span>
-          {item.origin ? <span className="mono">{item.origin}</span> : null}
-          {item.hint ? <span className="mono">{item.hint}</span> : null}
+          {item.hint ? <span className="vault-hint">{item.hint}</span> : null}
+          {item.origin ? <span className="mono">{item.origin.replace(/^https?:\/\//, '')}</span> : null}
         </p>
       </div>
       <div className="row-actions">
@@ -190,20 +188,23 @@ export function VaultPage() {
 
   return (
     <div className="page">
-      <PageHeader title="Vault" lead="Logins, cards and secure notes that Vector can use for you, without ever seeing them." />
+      <PageHeader title="Vault" />
 
-      <section className="callout" aria-label="How the vault works">
-        <span className="callout-icon">
-          <Icon name="vault" />
+      <section className="safe on-ink" aria-label="How the vault works">
+        <span className="safe-lock">
+          <Icon name="vault" size={24} />
         </span>
-        <div>
-          <h2>Secrets go in. They do not come out.</h2>
-          <ul>
-            <li>Once saved, a secret cannot be viewed again — not by you, not by this browser, and never by the AI model.</li>
-            <li>The list below shows a label and a masked hint only. To change a secret, delete it and save it again.</li>
-            <li>The browser agent types a secret into its matching site only, and only after you approve that use.</li>
-          </ul>
-        </div>
+        <h2>
+          Secrets go in.
+          <br />
+          They do not come out.
+        </h2>
+        <p>Once saved, nobody can read a secret back. Not you, not this browser, never the AI model.</p>
+        <ul className="safe-rules label">
+          <li>Typed into the matching site only</li>
+          <li>Only after you approve that use</li>
+          <li>To change one, delete it and save again</li>
+        </ul>
       </section>
 
       <section className="setting-card" aria-labelledby="vault-add-h">
@@ -211,7 +212,7 @@ export function VaultPage() {
         <VaultForm onSaved={() => setSaved(true)} />
         {saved ? (
           <p className="saved-note" role="status">
-            <Icon name="check" size={15} /> Saved and encrypted. The form has been cleared.
+            <Icon name="check" size={15} /> Sealed. Form cleared.
           </p>
         ) : null}
       </section>

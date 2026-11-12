@@ -159,7 +159,7 @@ main:focus-visible {
 }
 
 /* A quiet vector field: small arrow ticks, fading out. */
-.field {
+.vfield {
   position: absolute;
   inset: 0;
   pointer-events: none;

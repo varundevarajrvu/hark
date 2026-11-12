@@ -4,7 +4,7 @@ import { cancelRun, loadOlder, loadThread, sendMessage, setOpenThread } from '..
 import { dayKey, formatDay, formatTime } from '../lib/format.ts';
 import { renderMarkdown } from '../lib/markdown.ts';
 import { emptyThread, useStore } from '../store.ts';
-import { ApprovalPart, HandoffPart, ToolChip } from './cards.tsx';
+import { ApprovalPart, ConsentBar, HandoffPart, TraceStack } from './cards.tsx';
 import { ErrorNote, Icon, Loading, Mark, PromptChip, Spinner } from './ui.tsx';
 
 export const STARTER_PROMPTS = [
@@ -22,7 +22,6 @@ export function Composer(props: {
   onStop?: () => void;
   placeholder?: string;
   label?: string;
-  autoFocus?: boolean;
 }) {
   const [text, setText] = useState('');
   const [error, setError] = useState('');
@@ -33,14 +32,14 @@ export function Composer(props: {
     const el = ref.current;
     if (!el) return;
     el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, 200)}px`;
+    el.style.height = `${Math.min(el.scrollHeight, 168)}px`;
   }, [text]);
 
   const submit = async () => {
     const value = text.trim();
     if (!value || sending) return;
     if (props.running) {
-      setError('Vector is still working on the previous request. Wait for it to finish, or stop it.');
+      setError('Still working on the last request. Wait, or stop it.');
       return;
     }
     setSending(true);
@@ -56,21 +55,26 @@ export function Composer(props: {
 
   return (
     <form
-      className="composer"
+      className={`composer${props.running ? ' is-running' : ''}`}
       onSubmit={(e) => {
         e.preventDefault();
         void submit();
       }}
     >
       <ErrorNote>{error}</ErrorNote>
-      <div className="composer-box">
+      <div className="composer-pill">
+        {props.running ? (
+          <span className="composer-live" role="status">
+            <span className="pulse" aria-hidden="true" />
+            <span className="sr-only">Vector is working. You can stop it at any time.</span>
+          </span>
+        ) : null}
         <textarea
           ref={ref}
           rows={1}
           value={text}
-          autoFocus={props.autoFocus}
           aria-label={props.label ?? 'Message Vector'}
-          placeholder={props.placeholder ?? 'Ask Vector to do something…'}
+          placeholder={props.running ? 'Working…' : (props.placeholder ?? 'Tell Vector what to do')}
           enterKeyHint="send"
           onChange={(e) => {
             setText(e.target.value);
@@ -84,13 +88,13 @@ export function Composer(props: {
           }}
         />
         {props.running && props.onStop ? (
-          <button type="button" className="btn btn-stop" onClick={props.onStop}>
+          <button type="button" className="composer-btn composer-stop" onClick={props.onStop}>
             <span className="stop-glyph" aria-hidden="true" />
             Stop
           </button>
         ) : (
-          <button type="submit" className="btn btn-primary btn-send" disabled={!text.trim() || sending} aria-label="Send">
-            {sending ? <Spinner /> : <Icon name="send" />}
+          <button type="submit" className="composer-btn composer-send" disabled={!text.trim() || sending} aria-label="Send">
+            {sending ? <Spinner /> : <Icon name="send" size={20} />}
           </button>
         )}
       </div>
@@ -106,13 +110,26 @@ const Markdown = memo(function Markdown({ text }: { text: string }) {
   return <div className="md" dangerouslySetInnerHTML={{ __html: html }} />;
 });
 
-function Part({ part, role }: { part: MessagePart; role: ChatMessage['role'] }) {
+type ToolPart = Extract<MessagePart, { type: 'tool' }>;
+type Block = { kind: 'part'; part: MessagePart } | { kind: 'trace'; id: Id; tools: ToolPart[] };
+
+/** Consecutive tool parts collapse into one trace stack. */
+function blocksOf(parts: MessagePart[]): Block[] {
+  const blocks: Block[] = [];
+  for (const part of parts) {
+    const last = blocks[blocks.length - 1];
+    if (part.type === 'tool') {
+      if (last?.kind === 'trace') last.tools.push(part);
+      else blocks.push({ kind: 'trace', id: part.id, tools: [part] });
+    } else blocks.push({ kind: 'part', part });
+  }
+  return blocks;
+}
+
+function AssistantPart({ part }: { part: MessagePart }) {
   switch (part.type) {
     case 'text':
-      if (!part.text) return null;
-      return role === 'assistant' ? <Markdown text={part.text} /> : <p className="user-text">{part.text}</p>;
-    case 'tool':
-      return <ToolChip label={part.label} name={part.name} status={part.status} summary={part.summary} />;
+      return part.text ? <Markdown text={part.text} /> : null;
     case 'approval':
       return <ApprovalPart approvalId={part.approvalId} />;
     case 'handoff':
@@ -120,7 +137,7 @@ function Part({ part, role }: { part: MessagePart; role: ChatMessage['role'] }) 
     case 'notice':
       return (
         <p className={`notice notice-${part.tone}`} role={part.tone === 'error' ? 'alert' : undefined}>
-          <Icon name={part.tone === 'error' ? 'alert' : 'info'} size={16} />
+          <span className="label">{part.tone === 'error' ? 'Error' : 'Note'}</span>
           <span>{part.text}</span>
         </p>
       );
@@ -130,63 +147,53 @@ function Part({ part, role }: { part: MessagePart; role: ChatMessage['role'] }) 
 }
 
 const SOURCE_LABEL: Record<string, string> = {
-  action: 'From an Action Button',
-  task: 'From a scheduled task',
-  panel: 'From a panel',
+  action: 'Action button',
+  task: 'Scheduled task',
+  panel: 'Panel',
 };
 
 const Message = memo(function Message(props: { message: ChatMessage; streaming: boolean; timezone?: string }) {
   const { message, streaming } = props;
   const time = formatTime(message.createdAt, props.timezone);
+  const blocks = useMemo(() => blocksOf(message.parts), [message.parts]);
   if (message.role === 'user') {
     const source = message.source && message.source !== 'user' ? SOURCE_LABEL[message.source] : null;
     return (
       <article className="msg msg-user" aria-label={`You, ${time}`}>
-        {source ? <span className="msg-source">{source}</span> : null}
         <div className="bubble">
-          {message.parts.map((part) => (
-            <Part key={part.id} part={part} role="user" />
-          ))}
+          {message.parts.map((part) => (part.type === 'text' ? <p key={part.id}>{part.text}</p> : null))}
         </div>
+        <span className="label msg-meta">
+          {source ? `${source} · ` : ''}
+          {time}
+        </span>
       </article>
     );
   }
   const last = message.parts[message.parts.length - 1];
   const thinking = streaming && (!last || (last.type === 'tool' && last.status !== 'running'));
   return (
-    <article className={`msg msg-assistant${streaming ? ' is-streaming' : ''}`} aria-label={`Vector, ${time}`}>
-      <span className="msg-avatar" aria-hidden="true">
-        <Mark size={16} />
+    <article className={`msg msg-vector${streaming ? ' is-streaming' : ''}`} aria-label={`Vector, ${time}`}>
+      <span className="label msg-meta">
+        <Mark size={11} />
+        Vector · {time}
       </span>
-      <div className="msg-parts">
-        {message.parts.map((part) => (
-          <Part key={part.id} part={part} role="assistant" />
-        ))}
-        {thinking ? (
-          <p className="thinking">
-            <span className="dots" aria-hidden="true">
-              <i />
-              <i />
-              <i />
-            </span>
-            <span>Thinking</span>
-          </p>
-        ) : null}
-      </div>
+      {blocks.map((block) =>
+        block.kind === 'trace' ? <TraceStack key={block.id} tools={block.tools} /> : <AssistantPart key={block.part.id} part={block.part} />,
+      )}
+      {thinking ? (
+        <p className="thinking label">
+          <span className="caret" aria-hidden="true" />
+          Thinking
+        </p>
+      ) : null}
     </article>
   );
 });
 
 // ───────────────────────── Thread view ─────────────────────────
 
-export function ThreadView(props: {
-  threadId: Id;
-  title: string;
-  subtitle?: string;
-  headerActions?: ReactNode;
-  emptyTitle?: string;
-  emptyBody?: string;
-}) {
+export function ThreadView(props: { threadId: Id; strip?: ReactNode; emptyTitle?: string; emptyBody?: string }) {
   const { threadId } = props;
   const thread = useStore((s) => s.threads[threadId]) ?? emptyThread;
   const running = useStore((s) => Boolean(s.running[threadId]));
@@ -256,28 +263,22 @@ export function ThreadView(props: {
 
   return (
     <div className="thread">
-      <header className="thread-head">
-        <div className="thread-head-text">
-          <h1>{props.title}</h1>
-          {props.subtitle ? <p>{props.subtitle}</p> : null}
-        </div>
-        {props.headerActions}
-      </header>
+      {props.strip ? <div className="thread-strip">{props.strip}</div> : null}
 
       <div className="thread-scroll" ref={scroller} onScroll={onScroll} tabIndex={0} aria-label="Conversation">
         <div className="thread-content" ref={content} role="log" aria-live="polite" aria-relevant="additions" aria-busy={running}>
           {thread.hasMore ? (
             <div className="thread-older">
-              <button type="button" className="btn btn-sm btn-quiet" onClick={older} disabled={thread.loadingOlder}>
+              <button type="button" className="btn btn-sm btn-quiet label" onClick={older} disabled={thread.loadingOlder}>
                 {thread.loadingOlder ? <Spinner /> : null}
-                {thread.loadingOlder ? 'Loading earlier messages…' : 'Show earlier messages'}
+                {thread.loadingOlder ? 'Loading earlier' : 'Earlier messages'}
               </button>
             </div>
           ) : thread.loaded && thread.messages.length > 0 ? (
-            <p className="thread-start">This is the start of the conversation.</p>
+            <p className="label thread-start">Start of thread</p>
           ) : null}
 
-          {!thread.loaded && thread.loading ? <Loading label="Loading conversation" /> : null}
+          {!thread.loaded && thread.loading ? <Loading label="Loading thread" /> : null}
           {thread.error ? (
             <div className="thread-error">
               <ErrorNote>{thread.error}</ErrorNote>
@@ -290,10 +291,10 @@ export function ThreadView(props: {
           {isEmpty ? (
             <div className="thread-empty">
               <span className="thread-empty-mark">
-                <Mark size={28} />
+                <Mark size={44} />
               </span>
-              <h2>{props.emptyTitle ?? 'Tell Vector what you need.'}</h2>
-              <p>{props.emptyBody ?? 'It remembers, plans and acts — and asks before it spends, sends or signs in. Try one:'}</p>
+              <h2>{props.emptyTitle ?? 'Say it once.'}</h2>
+              <p>{props.emptyBody ?? 'Vector remembers, plans and acts. It asks before it spends, sends or signs in.'}</p>
               <div className="prompt-grid">
                 {STARTER_PROMPTS.map((prompt) => (
                   <PromptChip key={prompt} text={prompt} onPick={(text) => void send(text)} disabled={running} />
@@ -308,11 +309,7 @@ export function ThreadView(props: {
             lastDay = day;
             return (
               <div key={message.id} className="msg-row">
-                {divider ? (
-                  <p className="day-divider">
-                    <span>{divider}</span>
-                  </p>
-                ) : null}
+                {divider ? <p className="label day-divider">{divider}</p> : null}
                 <Message message={message} streaming={Boolean(streaming[message.id])} timezone={timezone} />
               </div>
             );
@@ -322,33 +319,27 @@ export function ThreadView(props: {
             <div key={p.localId} className="msg-row">
               <article className="msg msg-user is-pending" aria-label="You, sending">
                 <div className="bubble">
-                  <p className="user-text">{p.text}</p>
+                  <p>{p.text}</p>
                 </div>
+                <span className="label msg-meta">Sending</span>
               </article>
             </div>
           ))}
 
           {thread.lastRun ? (
             <p className={`notice ${thread.lastRun.status === 'error' ? 'notice-error' : 'notice-info'} run-end`}>
-              <Icon name={thread.lastRun.status === 'error' ? 'alert' : 'info'} size={16} />
+              <span className="label">{thread.lastRun.status === 'error' ? 'Run failed' : 'Stopped'}</span>
               <span>
-                {thread.lastRun.status === 'cancelled'
-                  ? 'Stopped. Nothing further was done.'
-                  : `That run failed. ${thread.lastRun.error ?? 'Try again in a moment.'}`}
+                {thread.lastRun.status === 'cancelled' ? 'Nothing further was done.' : (thread.lastRun.error ?? 'Try again in a moment.')}
               </span>
             </p>
           ) : null}
         </div>
       </div>
 
-      <div className="thread-foot">
-        {running ? (
-          <p className="run-status">
-            <span className="pulse" aria-hidden="true" />
-            Vector is working. You can stop it at any time.
-          </p>
-        ) : null}
-        <Composer onSend={send} running={running} onStop={() => void cancelRun(threadId)} placeholder="Message Vector…" />
+      <div className="floor">
+        <ConsentBar />
+        <Composer onSend={send} running={running} onStop={() => void cancelRun(threadId)} />
       </div>
     </div>
   );

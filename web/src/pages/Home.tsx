@@ -2,9 +2,10 @@ import { useMemo, useState, type FormEvent } from 'react';
 import type { ActionItem, Panel } from '../../../shared/types.ts';
 import { labelThread, refresh, sendMessage } from '../actions.ts';
 import { api, errorText, panelFrameUrl } from '../api.ts';
+import { ConsentBar } from '../components/cards.tsx';
 import { Composer, STARTER_PROMPTS } from '../components/thread.tsx';
-import { ConfirmDialog, Empty, ErrorNote, Icon, PromptChip, Spinner } from '../components/ui.tsx';
-import { greeting, relativeTime } from '../lib/format.ts';
+import { ConfirmDialog, ErrorNote, Icon, PromptChip, Spinner } from '../components/ui.tsx';
+import { formatTime, greeting, relativeTime } from '../lib/format.ts';
 import { navigate, threadHref } from '../router.ts';
 import { pendingApprovals, toast, useStore } from '../store.ts';
 import { ProjectDialog } from './Project.tsx';
@@ -19,11 +20,11 @@ function useSendToMain(): (text: string) => Promise<string | null> {
   };
 }
 
-// ───────────────────────── Action Buttons ─────────────────────────
+// ───────────────────────── Tickets (Action Buttons) ─────────────────────────
 
 const PRIORITY_WORD = { 1: 'High priority', 2: 'Medium priority', 3: 'Low priority' } as const;
 
-function ActionRow({ action }: { action: ActionItem }) {
+function Ticket({ action, lead }: { action: ActionItem; lead: boolean }) {
   const [busy, setBusy] = useState<'run' | 'dismiss' | null>(null);
   const running = action.status === 'running';
 
@@ -53,33 +54,29 @@ function ActionRow({ action }: { action: ActionItem }) {
   };
 
   return (
-    <li className={`action action-p${action.priority}`}>
-      <span className="magnitude" role="img" aria-label={PRIORITY_WORD[action.priority]}>
-        <i />
-        <i />
-        <i />
-      </span>
-      <div className="action-text">
-        <p className="action-title">{action.title}</p>
-        <p className="action-detail">{action.detail}</p>
-      </div>
-      <div className="action-controls">
-        {running ? (
-          <span className="pill pill-running">
-            <span className="pulse" aria-hidden="true" />
-            Working on it
-          </span>
-        ) : (
-          <button type="button" className={`btn ${action.priority === 1 ? 'btn-primary' : 'btn-accent-quiet'}`} disabled={busy !== null} onClick={() => void run()}>
-            {busy === 'run' ? <Spinner /> : null}
-            {action.verb}
-            <Icon name="arrow" size={15} />
-          </button>
-        )}
-        <button type="button" className="icon-btn" aria-label={`Dismiss: ${action.title}`} disabled={busy !== null || running} onClick={() => void dismiss()}>
-          <Icon name="x" size={16} />
+    <li className={`ticket${lead ? ' ticket-lead' : ''}${running ? ' is-running' : ''}`}>
+      <div className="ticket-top">
+        <span className={`tag ticket-p${action.priority}`} aria-label={PRIORITY_WORD[action.priority]}>
+          P{action.priority}
+        </span>
+        <span className="label ticket-age">{relativeTime(action.createdAt)}</span>
+        <button type="button" className="ticket-dismiss label" disabled={busy !== null || running} onClick={() => void dismiss()} aria-label={`Dismiss: ${action.title}`}>
+          Dismiss
         </button>
       </div>
+      <p className="ticket-title">{action.title}</p>
+      <p className="ticket-detail">{action.detail}</p>
+      {running ? (
+        <p className="ticket-running label">
+          <span className="pulse" aria-hidden="true" />
+          In flight
+        </p>
+      ) : (
+        <button type="button" className={`ticket-verb${lead ? ' is-go' : ''}`} disabled={busy !== null} onClick={() => void run()}>
+          <span>{action.verb}</span>
+          {busy === 'run' ? <Spinner /> : <span aria-hidden="true">→</span>}
+        </button>
+      )}
     </li>
   );
 }
@@ -112,17 +109,19 @@ function PanelCard({ panel }: { panel: Panel }) {
 
   return (
     <li className="panel">
-      <header className="panel-head">
-        <div className="panel-head-text">
+      <header className="panel-bar">
+        <span className="panel-dot" aria-hidden="true" />
+        <div className="panel-bar-text">
           <h3>{panel.title}</h3>
-          <p title={panel.description}>Updated {relativeTime(panel.updatedAt)}</p>
+          <p className="label" title={panel.description}>
+            Updated {relativeTime(panel.updatedAt)}
+          </p>
         </div>
-        <button type="button" className="btn btn-sm btn-quiet" aria-expanded={replying} onClick={() => setReplying((open) => !open)}>
-          <Icon name="reply" size={15} />
-          Reply
+        <button type="button" className="icon-btn" aria-label={`Reply to panel: ${panel.title}`} aria-expanded={replying} onClick={() => setReplying((open) => !open)}>
+          <Icon name="reply" />
         </button>
         <button type="button" className="icon-btn" aria-label={`Delete panel: ${panel.title}`} onClick={() => setDeleting(true)}>
-          <Icon name="trash" size={16} />
+          <Icon name="trash" />
         </button>
       </header>
       {/* Generated HTML: scripts only, no same-origin access, so it cannot touch the session or the API. */}
@@ -138,7 +137,7 @@ function PanelCard({ panel }: { panel: Panel }) {
       {replying ? (
         <form className="panel-reply" onSubmit={(e) => void reply(e)}>
           <label className="field">
-            <span>Ask about this panel, or ask for a redesign</span>
+            <span>Ask about it, or ask for a redesign</span>
             <input type="text" value={text} onChange={(e) => setText(e.target.value)} placeholder="Make it a weekly view" autoFocus maxLength={4000} />
           </label>
           <button type="submit" className="btn btn-primary" disabled={busy || !text.trim()}>
@@ -173,6 +172,7 @@ export function HomePage() {
   const panels = useStore((s) => s.panels);
   const projects = useStore((s) => s.projects);
   const approvals = useStore((s) => s.approvals);
+  const runningThreads = useStore((s) => s.running);
   const [creating, setCreating] = useState(false);
   const sendToMain = useSendToMain();
 
@@ -184,117 +184,155 @@ export function HomePage() {
     [actions],
   );
   const waiting = useMemo(() => pendingApprovals(approvals).length, [approvals]);
+  const timezone = user?.settings.timezone;
   const firstName = (user?.name ?? '').trim().split(/\s+/)[0];
   const pick = (text: string) => void sendToMain(text).then((failure) => failure && toast(failure, 'error'));
 
-  const summary: string[] = [];
-  if (waiting) summary.push(`${waiting} approval${waiting === 1 ? '' : 's'} waiting`);
-  if (visible.length) summary.push(`${visible.length} thing${visible.length === 1 ? '' : 's'} you can clear in one tap`);
+  const open = visible.filter((a) => a.status === 'open').length;
+  const needs = open + waiting;
+  const flights = Math.max(Object.keys(runningThreads).length, visible.length - open);
+  const now = new Date();
+  const date = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: safeZone(timezone) }).format(now);
   const brandNew = !visible.length && !panels.length && !projects.length;
+  const leadId = visible.find((a) => a.status === 'open')?.id;
 
   return (
-    <div className="page home">
-      <header className="home-hero">
-        <p className="eyebrow">{new Intl.DateTimeFormat(undefined, { weekday: 'long', day: 'numeric', month: 'long' }).format(new Date())}</p>
-        <h1>
-          {greeting(user?.settings.timezone)}
-          {firstName ? `, ${firstName}` : ''}.
-        </h1>
-        <p className="lead">{summary.length ? `${summary.join(' · ')}.` : 'Nothing needs you right now. What should Vector take off your plate?'}</p>
-        <Composer onSend={sendToMain} label="Message Vector" placeholder="Ask Vector to do something…" />
-        {brandNew ? (
-          <div className="prompt-grid">
-            {STARTER_PROMPTS.map((prompt) => (
-              <PromptChip key={prompt} text={prompt} onPick={pick} />
-            ))}
-          </div>
-        ) : null}
-      </header>
-
-      <section className="home-section home-now" aria-labelledby="now-h">
-        <div className="section-head">
-          <h2 id="now-h">Needs you now</h2>
-          {visible.length ? <span className="count">{visible.length}</span> : null}
-        </div>
-        {visible.length ? (
-          <ul className="actions">
-            {visible.map((a) => (
-              <ActionRow key={a.id} action={a} />
-            ))}
-          </ul>
-        ) : (
-          <Empty icon="check" title="You are all clear.">
-            <p>
-              When Vector spots something it can finish for you — a bill to pay, a renewal to cancel, a message to answer — it
-              puts a one-tap button here. Press it and Vector does the whole job, asking first if money or your accounts are
-              involved.
+    <>
+      <div className="home-scroll">
+        <div className="page home">
+          <header className="hero">
+            <div className="vfield" aria-hidden="true" />
+            <p className="label hero-date">
+              {date} · {formatTime(now.toISOString(), timezone)}
             </p>
-          </Empty>
-        )}
-      </section>
-
-      <section className="home-section" aria-labelledby="panels-h">
-        <div className="section-head">
-          <h2 id="panels-h">Panels</h2>
-          {panels.length ? <span className="count">{panels.length}</span> : null}
-        </div>
-        {panels.length ? (
-          <ul className="panels">
-            {panels.map((p) => (
-              <PanelCard key={`${p.id}`} panel={p} />
-            ))}
-          </ul>
-        ) : (
-          <Empty icon="panel" title="Small apps, built on request.">
-            <p>Describe something you want to keep an eye on and Vector builds a live panel for it here.</p>
-            <div className="prompt-row">
-              <PromptChip text="Build me a panel that tracks my reading streak" onPick={pick} />
-              <PromptChip text="Build me a panel with this week's weather for Bengaluru" onPick={pick} />
-            </div>
-          </Empty>
-        )}
-      </section>
-
-      <section className="home-section" aria-labelledby="projects-h">
-        <div className="section-head">
-          <h2 id="projects-h">Projects</h2>
-          {projects.length ? <span className="count">{projects.length}</span> : null}
-          <button type="button" className="btn btn-sm section-head-action" onClick={() => setCreating(true)}>
-            <Icon name="plus" size={15} />
-            New project
-          </button>
-        </div>
-        {projects.length ? (
-          <ul className="projects">
-            {projects.map((p) => (
-              <li key={p.id}>
-                <a className="project" href={`#/project/${encodeURIComponent(p.id)}`}>
-                  <span className="project-icon">
-                    <Icon name="folder" />
+            <h2 className="hero-hello">
+              {greeting(timezone).replace(/^Good (.)/, (_, c: string) => c.toUpperCase())},
+              <br />
+              {firstName || 'you'}.
+            </h2>
+            <p className="hero-state">
+              {needs ? (
+                <>
+                  <span className="hl">
+                    {needs} thing{needs === 1 ? '' : 's'}
+                  </span>{' '}
+                  need{needs === 1 ? 's' : ''} you
+                </>
+              ) : (
+                'Nothing needs you'
+              )}
+              {flights ? (
+                <>
+                  {' · '}
+                  <span className="hero-flight">
+                    <span className="pulse" aria-hidden="true" />
+                    {flights} run{flights === 1 ? '' : 's'} in flight
                   </span>
-                  <span className="project-text">
-                    <span className="project-name">{p.name}</span>
-                    <span className="project-desc">{p.description || 'No description'}</span>
-                  </span>
-                  <Icon name="chevron" size={16} />
-                </a>
-              </li>
-            ))}
-          </ul>
-        ) : (
-          <Empty icon="folder" title="Longer work gets its own thread.">
-            <p>
-              Planning a trip, a move, a job search? Give it a project so it does not get lost in everyday chat. Or start in the
-              main thread:
+                </>
+              ) : null}
             </p>
-            <div className="prompt-row">
-              <PromptChip text="Find the cheapest direct flight BLR → DEL next Friday" onPick={pick} />
+          </header>
+
+          {brandNew ? (
+            <section className="home-section rise" aria-labelledby="start-h">
+              <div className="section-head">
+                <h2 id="start-h">Start here</h2>
+              </div>
+              <p className="muted">Tap one. Vector takes it from there.</p>
+              <div className="prompt-grid">
+                {STARTER_PROMPTS.map((prompt) => (
+                  <PromptChip key={prompt} text={prompt} onPick={pick} />
+                ))}
+              </div>
+            </section>
+          ) : null}
+
+          <section className="home-section rise" aria-labelledby="now-h">
+            <div className="section-head">
+              <h2 id="now-h">Needs you</h2>
+              {visible.length ? <span className="count">{String(visible.length).padStart(2, '0')}</span> : null}
             </div>
-          </Empty>
-        )}
-      </section>
+            {visible.length ? (
+              <ul className="tickets">
+                {visible.map((a) => (
+                  <Ticket key={a.id} action={a} lead={a.id === leadId} />
+                ))}
+              </ul>
+            ) : (
+              <p className="quiet-note">
+                Clear. When Vector spots something it can finish for you — a bill, a renewal, a reply — it leaves a one-tap
+                ticket here.
+              </p>
+            )}
+          </section>
+
+          <section className="home-section rise" aria-labelledby="panels-h">
+            <div className="section-head">
+              <h2 id="panels-h">Panels</h2>
+              {panels.length ? <span className="count">{String(panels.length).padStart(2, '0')}</span> : null}
+            </div>
+            {panels.length ? (
+              <ul className="panels">
+                {panels.map((p) => (
+                  <PanelCard key={p.id} panel={p} />
+                ))}
+              </ul>
+            ) : (
+              <>
+                <p className="quiet-note">Small live apps, built on request. Describe what you want to keep an eye on.</p>
+                <div className="prompt-grid">
+                  <PromptChip text="Build me a panel that tracks my reading streak" onPick={pick} />
+                </div>
+              </>
+            )}
+          </section>
+
+          <section className="home-section rise" aria-labelledby="projects-h">
+            <div className="section-head">
+              <h2 id="projects-h">Projects</h2>
+              {projects.length ? <span className="count">{String(projects.length).padStart(2, '0')}</span> : null}
+              <button type="button" className="btn btn-sm section-head-action" onClick={() => setCreating(true)}>
+                <Icon name="plus" size={15} />
+                New
+              </button>
+            </div>
+            {projects.length ? (
+              <ul className="rows projects">
+                {projects.map((p) => (
+                  <li key={p.id}>
+                    <a className="project" href={`#/project/${encodeURIComponent(p.id)}`}>
+                      <span className="project-text">
+                        <span className="project-name">{p.name}</span>
+                        <span className="project-desc">{p.description || 'No description'}</span>
+                      </span>
+                      <Icon name="chevron" size={16} />
+                    </a>
+                  </li>
+                ))}
+              </ul>
+            ) : (
+              <p className="quiet-note">Longer work gets its own thread: a trip, a move, a job search.</p>
+            )}
+          </section>
+        </div>
+      </div>
+
+      <div className="floor">
+        <ConsentBar />
+        <Composer onSend={sendToMain} label="Message Vector" />
+      </div>
 
       {creating ? <ProjectDialog onClose={() => setCreating(false)} /> : null}
-    </div>
+    </>
   );
+}
+
+function safeZone(zone: string | undefined): string | undefined {
+  if (!zone) return undefined;
+  try {
+    new Intl.DateTimeFormat('en-GB', { timeZone: zone });
+    return zone;
+  } catch {
+    return undefined;
+  }
 }

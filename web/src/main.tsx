@@ -1,13 +1,15 @@
 import { createRoot } from 'react-dom/client';
 import { boot } from './actions.ts';
 import { App } from './App.tsx';
+import '@fontsource-variable/bricolage-grotesque/wght.css';
+import '@fontsource-variable/geist/wght.css';
+import '@fontsource-variable/geist-mono/wght.css';
 import './styles/tokens.css';
 import './styles/base.css';
-import './styles/layout.css';
-import './styles/components.css';
+import './styles/controls.css';
+import './styles/chrome.css';
 import './styles/chat.css';
 import './styles/pages.css';
-import './styles/touch.css';
 
 // Keep the layout inside the visible area when a mobile keyboard opens (the composer stays reachable).
 const viewport = window.visualViewport;

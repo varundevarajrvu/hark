@@ -28,14 +28,11 @@ const TITLES: Record<Route['name'], string> = {
 
 function Page({ route }: { route: Route }) {
   const mainThreadId = useStore((s) => s.mainThreadId);
-  const label = useStore((s) => (route.name === 'thread' ? s.threadLabels[route.id] : undefined));
   switch (route.name) {
     case 'home':
       return <HomePage />;
     case 'chat':
-      return mainThreadId ? (
-        <ThreadView key={mainThreadId} threadId={mainThreadId} title="Chat" subtitle="Your one ongoing conversation with Vector" />
-      ) : null;
+      return mainThreadId ? <ThreadView key={mainThreadId} threadId={mainThreadId} /> : null;
     case 'project':
       return <ProjectPage key={route.id} projectId={route.id} />;
     case 'thread':
@@ -43,10 +40,9 @@ function Page({ route }: { route: Route }) {
         <ThreadView
           key={route.id}
           threadId={route.id}
-          title={label ?? 'Run'}
-          subtitle="A run started by a task or an Action Button"
-          emptyTitle="Nothing here yet."
-          emptyBody="This run has not written anything. You can also type to it directly, or try one of these in a fresh message:"
+          strip={<span className="label">Run · started by a task or an action</span>}
+          emptyTitle="Nothing yet."
+          emptyBody="This run has not written anything. You can talk to it directly."
         />
       );
     case 'tasks':

@@ -1,10 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="surface">#101223</color>
-    <color name="on_surface">#ECEDF7</color>
-    <color name="on_surface_muted">#A9ADC6</color>
-    <color name="accent">#9AA5FF</color>
-    <color name="on_accent">#101223</color>
-    <color name="warning">#FFC56B</color>
-    <color name="error">#FFB4AB</color>
+    <color name="surface">#0B0D0C</color>
+    <color name="on_surface">#F2F4EE</color>
+    <color name="on_surface_muted">#9BA39A</color>
+    <color name="accent">#C8FF2E</color>
+    <color name="on_accent">#0B0D0C</color>
+    <color name="warning">#FFB020</color>
+    <color name="error">#FF7A66</color>
 </resources>

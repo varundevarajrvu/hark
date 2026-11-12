@@ -1,14 +1,15 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="surface">#FAFAFC</color>
-    <color name="on_surface">#14162B</color>
-    <color name="on_surface_muted">#565A75</color>
-    <color name="accent">#3D4DDB</color>
-    <color name="on_accent">#FFFFFF</color>
-    <color name="warning">#8A5300</color>
+    <!-- Mirrors the web client's "signal on ink" palette (web/src/styles/tokens.css), light theme. -->
+    <color name="surface">#F1EFE7</color>
+    <color name="on_surface">#10130F</color>
+    <color name="on_surface_muted">#555B52</color>
+    <color name="accent">#10130F</color>
+    <color name="on_accent">#F1EFE7</color>
+    <color name="warning">#7D4A00</color>
     <color name="error">#B3261E</color>
 
     <!-- Launcher icon: the same in light and dark. -->
-    <color name="icon_background">#1B1F45</color>
-    <color name="icon_foreground">#FFFFFF</color>
+    <color name="icon_background">#0B0D0C</color>
+    <color name="icon_foreground">#C8FF2E</color>
 </resources>

@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { boot } from '../actions.ts';
 import { navigateFromOverlay, type Route } from '../router.ts';
-import { pendingApprovals, setState, useStore } from '../store.ts';
-import { ApprovalCard } from './cards.tsx';
-import { Dialog, Icon, Mark, Toasts, useBackToClose, type IconName } from './ui.tsx';
+import { pendingApprovals, setState, toast, useStore } from '../store.ts';
+import { ApprovalCard, ConsentBar } from './cards.tsx';
+import { Dialog, Icon, Mark, Toasts, type IconName } from './ui.tsx';
 
 interface NavItem {
   href: string;
@@ -12,43 +12,41 @@ interface NavItem {
   match: Route['name'][];
 }
 
-const NAV: NavItem[] = [
+const DOCK: NavItem[] = [
   { href: '#/', label: 'Home', icon: 'home', match: ['home'] },
   { href: '#/chat', label: 'Chat', icon: 'chat', match: ['chat', 'project', 'thread'] },
   { href: '#/tasks', label: 'Tasks', icon: 'clock', match: ['tasks'] },
   { href: '#/memory', label: 'Memory', icon: 'memory', match: ['memory'] },
-  { href: '#/vault', label: 'Vault', icon: 'vault', match: ['vault'] },
-  { href: '#/specialties', label: 'Specialties', icon: 'spark', match: ['specialties'] },
-  { href: '#/settings', label: 'Settings', icon: 'settings', match: ['settings'] },
 ];
-const TABS = NAV.slice(0, 4);
-const MORE = NAV.slice(4);
+const MORE: (NavItem & { note: string })[] = [
+  { href: '#/vault', label: 'Vault', icon: 'vault', match: ['vault'], note: 'Logins, cards, secure notes' },
+  { href: '#/specialties', label: 'Specialties', icon: 'spark', match: ['specialties'], note: 'Routines Vector has memorised' },
+  { href: '#/settings', label: 'Settings', icon: 'settings', match: ['settings'], note: 'You, approvals, activity, data' },
+];
+
+const TITLES: Record<Route['name'], string> = {
+  home: 'Vector',
+  chat: 'Chat',
+  project: 'Project',
+  thread: 'Run',
+  tasks: 'Tasks',
+  memory: 'Memory',
+  vault: 'Vault',
+  specialties: 'Specialties',
+  settings: 'Settings',
+  notfound: 'Nowhere',
+};
 
 const setTray = (open: boolean) => setState((s) => (s.trayOpen === open ? s : { ...s, trayOpen: open }));
-
-function ApprovalsButton({ count, compact }: { count: number; compact?: boolean }) {
-  return (
-    <button
-      type="button"
-      className={`approvals-btn${count ? ' has-pending' : ''}${compact ? ' is-compact' : ''}`}
-      onClick={() => setTray(true)}
-      aria-label={count ? `Approvals: ${count} waiting for you` : 'Approvals: none waiting'}
-    >
-      <Icon name="shield" />
-      {compact ? null : <span>Approvals</span>}
-      {count ? <span className="badge">{count}</span> : null}
-    </button>
-  );
-}
 
 function ApprovalsTray() {
   const approvals = useStore((s) => s.approvals);
   const pending = useMemo(() => pendingApprovals(approvals), [approvals]);
   return (
-    <Dialog title={pending.length ? `Waiting for you · ${pending.length}` : 'Approvals'} variant="sheet" onClose={() => setTray(false)}>
+    <Dialog title={pending.length ? `Waiting on you · ${pending.length}` : 'Approvals'} variant="sheet" onClose={() => setTray(false)}>
       {pending.length ? (
         <div className="stack">
-          <p className="muted">Vector has paused on each of these. Nothing is spent, sent or signed in to until you approve.</p>
+          <p className="muted">Vector has stopped at each of these. Nothing is spent, sent or signed in to until you say so.</p>
           {pending.map((a) => (
             <div
               key={a.id}
@@ -67,11 +65,11 @@ function ApprovalsTray() {
       ) : (
         <div className="stack">
           <p className="tray-clear">
-            <Icon name="check" /> Nothing is waiting for you.
+            <Icon name="check" size={22} /> Nothing is waiting on you.
           </p>
           <p className="muted">
-            Vector asks here before it spends money, sends something in your name, shares personal details, changes an
-            account or uses a saved login — including when a scheduled task runs while you are away.
+            Vector stops here before it spends money, sends something in your name, shares your details, changes an account or
+            uses a saved login. That includes scheduled tasks that run while you are away.
           </p>
         </div>
       )}
@@ -79,40 +77,11 @@ function ApprovalsTray() {
   );
 }
 
-function StatusLines() {
-  const llm = useStore((s) => s.llm);
-  const conn = useStore((s) => s.conn);
+function MoreSheet({ route, onClose }: { route: Route; onClose: () => void }) {
+  const user = useStore((s) => s.user);
   return (
-    <>
-      {llm?.mock ? (
-        <p className="statusline" role="status">
-          <Icon name="info" size={15} />
-          Offline demo model — answers are scripted
-        </p>
-      ) : llm && !llm.configured ? (
-        <p className="statusline statusline-warn" role="status">
-          <Icon name="alert" size={15} />
-          <span>
-            No model API key on the server — set <code>GEMINI_API_KEY</code>, <code>GROQ_API_KEY</code> or <code>ANTHROPIC_API_KEY</code>
-          </span>
-        </p>
-      ) : null}
-      {conn === 'down' ? (
-        <p className="statusline statusline-warn" role="status">
-          <Icon name="alert" size={15} />
-          Connection lost. Reconnecting — live updates are paused.
-        </p>
-      ) : null}
-    </>
-  );
-}
-
-function MoreMenu({ route, onClose }: { route: Route; onClose: () => void }) {
-  useBackToClose(onClose);
-  return (
-    <>
-      <div className="more-scrim" onClick={onClose} />
-      <ul className="more-menu" id="more-menu">
+    <Dialog title="More" variant="sheet" onClose={onClose}>
+      <ul className="more-list">
         {MORE.map((item) => (
           <li key={item.href}>
             <a
@@ -123,20 +92,45 @@ function MoreMenu({ route, onClose }: { route: Route; onClose: () => void }) {
                 navigateFromOverlay(item.href, onClose);
               }}
             >
-              <Icon name={item.icon} />
-              {item.label}
+              <Icon name={item.icon} size={22} />
+              <span className="more-text">
+                <span className="more-name">{item.label}</span>
+                <span className="label">{item.note}</span>
+              </span>
+              <Icon name="chevron" size={16} />
             </a>
           </li>
         ))}
       </ul>
-    </>
+      {user ? <p className="label more-user">Signed in · {user.email}</p> : null}
+    </Dialog>
+  );
+}
+
+/** Model and connection state as one small mono chip. Tap for the full sentence. */
+function StatusChip() {
+  const llm = useStore((s) => s.llm);
+  const conn = useStore((s) => s.conn);
+  let chip: { text: string; full: string; tone: 'quiet' | 'bad' } | null = null;
+  if (conn === 'down') chip = { text: 'Offline', full: 'Connection lost. Reconnecting — live updates are paused.', tone: 'bad' };
+  else if (llm?.mock) chip = { text: 'Demo', full: 'Offline demo model — answers are scripted', tone: 'quiet' };
+  else if (llm && !llm.configured) chip = { text: 'No key', full: 'No Claude API credentials on the server — set ANTHROPIC_API_KEY', tone: 'bad' };
+  if (!chip) return null;
+  const { full, tone, text } = chip;
+  return (
+    <button type="button" className={`status-chip status-${tone}`} aria-label={full} onClick={() => toast(full, tone === 'bad' ? 'error' : 'info')}>
+      <span className="status-chip-face" role="status">
+        {text}
+      </span>
+    </button>
   );
 }
 
 export function Shell({ route, children }: { route: Route; children: ReactNode }) {
-  const user = useStore((s) => s.user);
   const approvals = useStore((s) => s.approvals);
   const trayOpen = useStore((s) => s.trayOpen);
+  const projectName = useStore((s) => (route.name === 'project' ? s.projects.find((p) => p.id === route.id)?.name : undefined));
+  const threadLabel = useStore((s) => (route.name === 'thread' ? s.threadLabels[route.id] : undefined));
   const pending = useMemo(() => pendingApprovals(approvals), [approvals]);
   const [moreOpen, setMoreOpen] = useState(false);
   const [announcement, setAnnouncement] = useState('');
@@ -157,7 +151,6 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
   }, [pending]);
 
   useEffect(() => {
-    setMoreOpen(false);
     if (firstRoute.current) {
       firstRoute.current = false;
       return;
@@ -165,16 +158,9 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
     mainRef.current?.focus({ preventScroll: true });
   }, [route]);
 
-  useEffect(() => {
-    if (!moreOpen) return;
-    const close = (e: KeyboardEvent) => e.key === 'Escape' && setMoreOpen(false);
-    window.addEventListener('keydown', close);
-    return () => window.removeEventListener('keydown', close);
-  }, [moreOpen]);
-
-  const current = (item: NavItem) => (item.match.includes(route.name) ? 'page' : undefined);
-  const first = pending[0];
-  const fullHeight = route.name === 'chat' || route.name === 'project' || route.name === 'thread';
+  const title = projectName ?? threadLabel ?? TITLES[route.name];
+  const hasFloor = route.name === 'home' || route.name === 'chat' || route.name === 'project' || route.name === 'thread';
+  const moreCurrent = MORE.some((m) => m.match.includes(route.name));
 
   return (
     <div className="app">
@@ -182,89 +168,47 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
         Skip to content
       </button>
 
-      <nav className="rail" aria-label="Primary">
-        <a className="brand" href="#/" aria-label="Vector, home">
-          <span className="brand-mark">
-            <Mark size={18} />
-          </span>
-          <span className="brand-name">Vector</span>
+      <header className="bar">
+        <a className="bar-mark" href="#/" aria-label="Vector, home">
+          <Mark size={26} />
         </a>
-        <ul className="rail-nav">
-          {NAV.map((item) => (
-            <li key={item.href}>
-              <a href={item.href} aria-current={current(item)}>
-                <Icon name={item.icon} />
-                {item.label}
-              </a>
-            </li>
-          ))}
-        </ul>
-        <div className="rail-foot">
-          <ApprovalsButton count={pending.length} />
-          {user ? (
-            <a className="rail-user" href="#/settings" title={user.email}>
-              <span className="avatar" aria-hidden="true">
-                {(user.name || user.email).trim().charAt(0).toUpperCase()}
-              </span>
-              <span className="rail-user-name">{user.name || user.email}</span>
-            </a>
-          ) : null}
+        <h1 className="bar-title">{title}</h1>
+        <StatusChip />
+        <button
+          type="button"
+          className={`consent-pill${pending.length ? ' has-pending' : ''}`}
+          onClick={() => setTray(true)}
+          aria-label={pending.length ? `Approvals: ${pending.length} waiting on you` : 'Approvals: none waiting'}
+        >
+          <Icon name="shield" size={18} />
+          {pending.length ? <span className="consent-pill-count">{pending.length}</span> : null}
+        </button>
+      </header>
+
+      <main id="main" ref={mainRef} tabIndex={-1} className={hasFloor ? 'main main-fixed' : 'main'}>
+        {children}
+      </main>
+
+      {hasFloor ? null : (
+        <div className="floor floor-fixed">
+          <ConsentBar />
         </div>
-      </nav>
+      )}
 
-      <div className="stage">
-        <header className="topbar">
-          <a className="brand" href="#/" aria-label="Vector, home">
-            <span className="brand-mark">
-              <Mark size={18} />
-            </span>
-            <span className="brand-name">Vector</span>
-          </a>
-          <ApprovalsButton count={pending.length} compact />
-        </header>
-
-        <StatusLines />
-
-        {first ? (
-          <div className="approval-banner">
-            <span className="approval-banner-icon">
-              <Icon name="shield" />
-            </span>
-            <p>
-              <strong>{pending.length === 1 ? 'Vector needs your approval' : `${pending.length} approvals are waiting`}</strong>
-              <span className="approval-banner-summary">{first.summary}</span>
-            </p>
-            <button type="button" className="btn btn-primary btn-sm" onClick={() => setTray(true)}>
-              Review
-            </button>
-          </div>
-        ) : null}
-
-        <main id="main" ref={mainRef} tabIndex={-1} className={fullHeight ? 'main main-fixed' : 'main'}>
-          {children}
-        </main>
-      </div>
-
-      <nav className="tabbar" aria-label="Primary">
-        {TABS.map((item) => (
-          <a key={item.href} href={item.href} aria-current={current(item)}>
-            <Icon name={item.icon} size={20} />
+      <nav className="dock" aria-label="Primary">
+        {DOCK.map((item) => (
+          <a key={item.href} href={item.href} aria-current={item.match.includes(route.name) ? 'page' : undefined}>
+            <Icon name={item.icon} size={21} />
             <span>{item.label}</span>
           </a>
         ))}
-        <button
-          type="button"
-          aria-expanded={moreOpen}
-          aria-controls="more-menu"
-          className={MORE.some((m) => m.match.includes(route.name)) ? 'is-current' : undefined}
-          onClick={() => setMoreOpen((open) => !open)}
-        >
-          <Icon name="more" size={20} />
+        <button type="button" aria-haspopup="dialog" className={moreCurrent ? 'is-current' : undefined} onClick={() => setMoreOpen(true)}>
+          <Icon name="more" size={21} />
           <span>More</span>
         </button>
-        {moreOpen ? <MoreMenu route={route} onClose={() => setMoreOpen(false)} /> : null}
       </nav>
 
+      {moreOpen ? <MoreSheet route={route} onClose={() => setMoreOpen(false)} /> : null}
       {trayOpen ? <ApprovalsTray /> : null}
       <Toasts />
       <div className="sr-only" role="alert" aria-live="assertive">
@@ -277,21 +221,22 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
 export function Splash() {
   const bootError = useStore((s) => s.bootError);
   return (
-    <div className="splash">
-      <span className="brand-mark brand-mark-lg">
-        <Mark size={28} />
+    <div className="splash on-ink">
+      <div className="vfield" aria-hidden="true" />
+      <span className="splash-mark">
+        <Mark size={64} />
       </span>
       {bootError ? (
         <>
-          <h1>Vector is not answering</h1>
+          <h1>Vector is not answering.</h1>
           <p className="muted">{bootError}</p>
           <button type="button" className="btn btn-primary" onClick={() => void boot()}>
             Try again
           </button>
         </>
       ) : (
-        <p className="muted" role="status">
-          Starting Vector…
+        <p className="label" role="status">
+          Starting
         </p>
       )}
     </div>

@@ -8,10 +8,10 @@ import { dismissToast, useStore } from '../store.ts';
 export function Mark({ size = 24 }: { size?: number }) {
   return (
     <svg className="mark" width={size} height={size} viewBox="0 0 24 24" aria-hidden="true" focusable="false">
-      <circle cx="5.2" cy="18.8" r="2.3" fill="currentColor" />
-      <g fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-        <path d="M8.6 15.4 19 5" />
-        <path d="M11.5 5H19v7.5" />
+      <g fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="square" strokeLinejoin="miter">
+        <circle cx="5.6" cy="18.4" r="2.6" />
+        <path d="M9.4 14.600 19.400 4.600" />
+        <path d="M11.600 4.300H19.700v8.100" />
       </g>
     </svg>
   );
@@ -60,9 +60,9 @@ export function Icon({ name, size = 18 }: { name: IconName; size?: number }) {
       viewBox="0 0 24 24"
       fill="none"
       stroke="currentColor"
-      strokeWidth="1.8"
-      strokeLinecap="round"
-      strokeLinejoin="round"
+      strokeWidth="1.6"
+      strokeLinecap="square"
+      strokeLinejoin="miter"
       aria-hidden="true"
       focusable="false"
     >
@@ -114,13 +114,11 @@ export function ErrorNote({ children }: { children: ReactNode }) {
   );
 }
 
+/** The screen title lives in the app header; a page opens with one line of what it is for. */
 export function PageHeader(props: { title: string; lead?: ReactNode; actions?: ReactNode }) {
   return (
     <header className="page-header">
-      <div className="page-header-text">
-        <h1>{props.title}</h1>
-        {props.lead ? <p className="lead">{props.lead}</p> : null}
-      </div>
+      {props.lead ? <p className="lead">{props.lead}</p> : null}
       {props.actions ? <div className="page-header-actions">{props.actions}</div> : null}
     </header>
   );
@@ -211,7 +209,7 @@ export function Dialog(props: {
   return (
     <dialog
       ref={ref}
-      className={`dialog dialog-${props.variant ?? 'modal'}${props.wide ? ' dialog-wide' : ''}`}
+      className={`dialog dialog-${props.variant ?? 'modal'}${props.variant === 'lightbox' ? ' on-ink' : ''}`}
       aria-labelledby={titleId}
       onClose={props.onClose}
       onClick={(e) => {
