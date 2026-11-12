@@ -1,4 +1,4 @@
-import { config, ensureDataDir, hasLlmCredentials, masterKey } from './core/config.ts';
+import { config, credentialsHint, ensureDataDir, hasLlmCredentials, masterKey } from './core/config.ts';
 import { db } from './core/db.ts';
 import { createAgentRuntime } from './agent/index.ts';
 import { createHandoffRuntime } from './handoff/index.ts';
@@ -16,7 +16,7 @@ const app = await buildApp({ agent, handoff, scheduler });
 
 await app.listen({ port: config.port, host: config.host });
 
-const llm = config.mockLlm ? 'offline demo model (VECTOR_MOCK_LLM=1)' : hasLlmCredentials() ? config.model : `${config.model} — NO CREDENTIALS: set ANTHROPIC_API_KEY`;
+const llm = config.mockLlm ? 'offline demo model (VECTOR_MOCK_LLM=1)' : hasLlmCredentials() ? `${config.model} (${config.provider})` : `NO CREDENTIALS — ${credentialsHint()}`;
 console.log(`Vector is listening on http://${config.host}:${config.port}\n  model: ${llm}\n  data:  ${config.dataDir}`);
 
 for (const sig of ['SIGINT', 'SIGTERM'] as const) {

@@ -93,7 +93,7 @@ function StatusLines() {
         <p className="statusline statusline-warn" role="status">
           <Icon name="alert" size={15} />
           <span>
-            No Claude API credentials on the server — set <code>ANTHROPIC_API_KEY</code>
+            No model API key on the server — set <code>GEMINI_API_KEY</code>, <code>GROQ_API_KEY</code> or <code>ANTHROPIC_API_KEY</code>
           </span>
         </p>
       ) : null}

@@ -22,11 +22,31 @@ With the scripted offline model (no API key, good for a first look):
 VECTOR_MOCK_LLM=1 npm start
 ```
 
-With Claude:
+With a free model (Google Gemini free tier; get a key at https://aistudio.google.com/apikey):
+
+```bash
+GEMINI_API_KEY=... npm start
+```
+
+With Claude (paid, the strongest option):
 
 ```bash
 ANTHROPIC_API_KEY=sk-ant-... npm start
 ```
+
+### Model providers
+
+| Provider | Set | Default model | Cost |
+|---|---|---|---|
+| Google Gemini | `GEMINI_API_KEY` | `gemini-3.8-flash` | Free tier, rate-limited. Google uses free-tier content to improve its products. |
+| Groq | `GROQ_API_KEY` | `openai/gpt-oss-120b` | Free tier, tight per-minute token limits. |
+| Claude | `ANTHROPIC_API_KEY` | `claude-fable-5-2` | Paid per token. |
+| Any OpenAI-compatible server | `VECTOR_OPENAI_BASE_URL`, `VECTOR_MODEL` | none | Yours (Ollama, OpenRouter…). |
+
+`VECTOR_MODEL` overrides the default; `VECTOR_PROVIDER` picks one when several keys are set.
+With a non-Claude provider there is no hosted web search or fetch (the browser agent is used
+instead), no prompt caching and no automatic compaction of long threads. The approval, vault and
+network guards are enforced in code and are the same on every provider.
 
 Then open http://127.0.0.1:8787. To reach it from a phone on the same Wi-Fi, start it with
 `HOST=0.0.0.0` and open `http://<laptop-ip>:8787`.
@@ -46,12 +66,11 @@ or point `VECTOR_CHROMIUM_PATH` at an existing binary. All settings are listed i
 | Contract | `shared/types.ts` | Every type and route that crosses the HTTP/SSE boundary |
 | Core | `server/core/` | SQLite schema and queries, vault crypto, approval gate, event bus |
 | HTTP | `server/http/` | Auth, REST routes, Server-Sent Events, scheduler |
-| Agent | `server/agent/` | The chat agent: Claude tool loop, tools, offline model |
+| Agent | `server/agent/` | The chat agent: tool loop, tools, model clients (Claude, OpenAI-compatible, offline) |
 | Browser agent | `server/handoff/` | Drives Chromium toward a goal, one fresh browser per run |
 | Phone UI | `web/` | React client, phone-first |
 | Android | `android/` | WebView shell that loads your server |
 
-Model: every agent uses `claude-fable-5-2` (`VECTOR_MODEL` to change).
 
 ## Security model
 

@@ -1,5 +1,6 @@
 import { config } from '../core/config.ts';
 import { createAnthropicClient, textBlock, toolUseBlock } from './llm.ts';
+import { createOpenAiCompatClient } from './openai-compat.ts';
 import type { LlmBlock, LlmClient, LlmMessage, LlmRequest, LlmResponse } from './llm.ts';
 
 /**
@@ -10,7 +11,8 @@ import type { LlmBlock, LlmClient, LlmMessage, LlmRequest, LlmResponse } from '.
  */
 
 export function defaultLlm(): LlmClient {
-  return config.mockLlm ? createOfflineClient() : createAnthropicClient();
+  if (config.mockLlm) return createOfflineClient();
+  return config.provider === 'anthropic' ? createAnthropicClient() : createOpenAiCompatClient();
 }
 
 export function createOfflineClient(): LlmClient {
@@ -174,7 +176,7 @@ function orchestratorScript(messages: LlmMessage[]): LlmBlock[] {
       'This is the offline demo model, not Claude, so I cannot actually answer that. I can demonstrate the product: ' +
         'say "remember that …" to save a memory, ask for a "panel" or "tracker", "remind me every day at 9am …" to schedule a task, ' +
         'mention a "todo" or a "bill" to get an action button, say "buy …" to see an approval request, or give me a URL to send the browser agent to. ' +
-        'Real answers need Claude API credentials on the server (set ANTHROPIC_API_KEY and unset VECTOR_MOCK_LLM).',
+        'Real answers need a model API key on the server: unset VECTOR_MOCK_LLM and set GEMINI_API_KEY (free tier), GROQ_API_KEY (free tier) or ANTHROPIC_API_KEY.',
     ),
   ];
 }

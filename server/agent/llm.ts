@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { config, hasLlmCredentials } from '../core/config.ts';
+import { config, credentialsHint, hasLlmCredentials } from '../core/config.ts';
 
 /**
  * The one seam between the product and the model. Both agents (the orchestrator in server/agent and
@@ -37,11 +37,20 @@ export interface LlmClient {
 /** No usable credentials (none configured, or the API rejected them). */
 export class LlmCredentialsError extends Error {
   constructor() {
-    super(NO_CREDENTIALS_NOTICE);
+    super(noCredentialsNotice());
   }
 }
 
-export const NO_CREDENTIALS_NOTICE = 'No Claude API credentials are configured on the server. Set ANTHROPIC_API_KEY and restart.';
+export function noCredentialsNotice(): string {
+  return `No working model API key is configured on the server. ${credentialsHint()}`;
+}
+
+/** A failed call to an OpenAI-compatible provider. `detail` is for the server log only. */
+export class LlmHttpError extends Error {
+  constructor(readonly status: number, readonly detail: string) {
+    super(`model API returned ${status}`);
+  }
+}
 
 export function isAbortError(err: unknown): boolean {
   return err instanceof Anthropic.APIUserAbortError || (err instanceof Error && err.name === 'AbortError');
@@ -49,7 +58,15 @@ export function isAbortError(err: unknown): boolean {
 
 /** A short, user-safe sentence for a failed model call. Never includes raw API messages or request ids. */
 export function describeLlmError(err: unknown): string {
-  if (err instanceof LlmCredentialsError || err instanceof Anthropic.AuthenticationError) return NO_CREDENTIALS_NOTICE;
+  if (err instanceof LlmCredentialsError || err instanceof Anthropic.AuthenticationError) return noCredentialsNotice();
+  if (err instanceof LlmHttpError) {
+    if (err.status === 429) return 'The model’s free quota or rate limit is used up for now. Wait a minute and try again.';
+    if (err.status === 404) return `The model “${config.model}” was not found at this provider. Check VECTOR_MODEL.`;
+    if (err.status === 400) return 'The model provider rejected the request. The server log has the details.';
+    if (err.status >= 500) return 'The model provider is temporarily unavailable. Try again shortly.';
+    return 'The model provider returned an error. The server log has the details.';
+  }
+  if (err instanceof TypeError && /fetch failed/i.test(err.message)) return 'Could not reach the model provider. Check the server’s network connection.';
   if (err instanceof Anthropic.PermissionDeniedError) return 'The configured Claude API key is not allowed to use this model.';
   if (err instanceof Anthropic.NotFoundError) return 'The configured Claude model was not found. Check VECTOR_MODEL.';
   if (err instanceof Anthropic.RateLimitError) return 'Claude is rate limited right now. Try again in a minute.';
@@ -97,6 +114,24 @@ export function toolUseBlock(name: string, input: unknown, id?: string): LlmBloc
 
 // ───────────────────────── the real client ─────────────────────────
 
+/**
+ * Tool calls made through another provider carry a private `_extra` field (see openai-compat.ts).
+ * Claude's API rejects unknown fields, so drop it when a thread started elsewhere is replayed here.
+ * Blocks Claude produced never have it, so its own history is passed back untouched.
+ */
+function withoutForeignFields(messages: LlmMessage[]): LlmMessage[] {
+  return messages.map((m) => {
+    if (!Array.isArray(m.content) || !m.content.some((b) => '_extra' in b)) return m;
+    const content = m.content.map((b) => {
+      if (!('_extra' in b)) return b;
+      const copy: Record<string, unknown> = { ...b };
+      delete copy._extra;
+      return copy;
+    });
+    return { ...m, content } as LlmMessage;
+  });
+}
+
 const MAX_TOKENS = 64_000;
 type StreamBody = Parameters<Anthropic['beta']['messages']['stream']>[0];
 
@@ -118,7 +153,7 @@ export function createAnthropicClient(): LlmClient {
         system: [{ type: 'text', text: req.system, cache_control: { type: 'ephemeral' } }],
         // Automatic breakpoint on the last cacheable block, so the append-only history is read from cache too.
         cache_control: { type: 'ephemeral' },
-        messages: req.messages,
+        messages: withoutForeignFields(req.messages),
         tools: req.tools,
       };
       if (config.useFallbacks) {
