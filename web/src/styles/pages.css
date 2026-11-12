@@ -421,6 +421,7 @@
   font-weight: 600;
 }
 .audit {
+  position: relative;
   display: grid;
   max-height: 420px;
   overflow-y: auto;

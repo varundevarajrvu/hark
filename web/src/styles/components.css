@@ -730,6 +730,7 @@ input[readonly] {
   white-space: nowrap;
 }
 .dialog-body {
+  position: relative;
   padding: 0 var(--s-5) var(--s-5);
   overflow-y: auto;
   min-height: 0;

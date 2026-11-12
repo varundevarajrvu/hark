@@ -348,7 +348,7 @@ export function ThreadView(props: {
             Vector is working. You can stop it at any time.
           </p>
         ) : null}
-        <Composer onSend={send} running={running} onStop={() => void cancelRun(threadId)} />
+        <Composer onSend={send} running={running} onStop={() => void cancelRun(threadId)} placeholder="Message Vector…" />
       </div>
     </div>
   );

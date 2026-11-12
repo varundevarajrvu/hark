@@ -156,6 +156,16 @@ function orchestratorScript(messages: LlmMessage[]): LlmBlock[] {
       }),
     ];
   }
+  if (/\b(buy|order|purchase|pay for)\b/.test(lower)) {
+    return [
+      textBlock('That spends your money, so I need your go-ahead first.'),
+      toolUseBlock('request_approval', {
+        kind: 'purchase',
+        summary: text.slice(0, 120),
+        detail: { note: 'Demo approval from the offline model. Nothing is bought either way.' },
+      }),
+    ];
+  }
   if (url || /\b(browse|go to|open)\b/.test(lower)) {
     return [textBlock('Handing this to the browser agent.'), toolUseBlock('handoff', url ? { goal: text, start_url: url } : { goal: text })];
   }
@@ -163,7 +173,7 @@ function orchestratorScript(messages: LlmMessage[]): LlmBlock[] {
     textBlock(
       'This is the offline demo model, not Claude, so I cannot actually answer that. I can demonstrate the product: ' +
         'say "remember that …" to save a memory, ask for a "panel" or "tracker", "remind me every day at 9am …" to schedule a task, ' +
-        'mention a "todo" or a "bill" to get an action button, or give me a URL to send the browser agent to. ' +
+        'mention a "todo" or a "bill" to get an action button, say "buy …" to see an approval request, or give me a URL to send the browser agent to. ' +
         'Real answers need Claude API credentials on the server (set ANTHROPIC_API_KEY and unset VECTOR_MOCK_LLM).',
     ),
   ];

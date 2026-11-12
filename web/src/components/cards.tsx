@@ -165,6 +165,7 @@ export function HandoffPart({ runId }: { runId: Id }) {
   const gone = useStore((s) => s.handoffsGone[runId]);
   const timezone = useStore((s) => s.user?.settings.timezone);
   const [zoomed, setZoomed] = useState(false);
+  const [zoomIn, setZoomIn] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [error, setError] = useState('');
   const [brokenVersion, setBrokenVersion] = useState(-1);
@@ -278,8 +279,19 @@ export function HandoffPart({ runId }: { runId: Id }) {
       </footer>
 
       {zoomed ? (
-        <Dialog title={displayUrl(run.url) || 'Screenshot'} variant="lightbox" onClose={() => setZoomed(false)}>
-          <img className="lightbox-img" src={shot} alt="Latest screenshot from the browser agent, enlarged" />
+        <Dialog title={displayUrl(run.url) || 'Screenshot'} variant="lightbox" onClose={() => (setZoomed(false), setZoomIn(false))}>
+          <div className="lightbox-scroll">
+            <button
+              type="button"
+              className={`lightbox-zoom${zoomIn ? ' is-zoomed' : ''}`}
+              aria-pressed={zoomIn}
+              aria-label={zoomIn ? 'Fit the screenshot to the screen' : 'Zoom in on the screenshot'}
+              onClick={() => setZoomIn((z) => !z)}
+            >
+              <img className="lightbox-img" src={shot} alt="Latest screenshot from the browser agent" />
+            </button>
+          </div>
+          <p className="lightbox-hint">{zoomIn ? 'Drag to look around. Tap to fit.' : 'Tap the picture to zoom in. It updates live.'}</p>
         </Dialog>
       ) : null}
     </section>

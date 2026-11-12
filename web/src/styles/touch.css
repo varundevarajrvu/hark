@@ -76,11 +76,16 @@ summary,
     min-height: 46px;
   }
   .approval-link,
-  .toast a,
-  .setting-card p a {
+  .toast a {
     display: inline-flex;
     align-items: center;
     min-height: 44px;
+  }
+  .setting-card p a,
+  .empty p > a:only-child {
+    display: block;
+    width: fit-content;
+    padding-block: 11px;
   }
   .topbar .brand {
     min-height: 44px;
@@ -146,4 +151,58 @@ summary,
   .lead {
     font-size: var(--t-base);
   }
+}
+
+/* Phones: the conversation gets the height. Chrome above it is one line each. */
+@media (max-width: 560px) {
+  .statusline {
+    padding: 3px var(--s-3);
+    font-size: var(--t-xs);
+  }
+  .approval-banner {
+    padding: 4px var(--s-3) 4px var(--s-4);
+  }
+  .approval-banner p {
+    flex-wrap: nowrap;
+  }
+  .approval-banner-summary {
+    display: none;
+  }
+  .approval-banner .btn {
+    min-height: 44px;
+  }
+  .thread-head {
+    min-height: 44px;
+    padding-block: 4px;
+  }
+  .thread-head p {
+    display: none;
+  }
+  .lightbox-scroll {
+    max-height: calc(var(--app-height) - 140px);
+  }
+}
+.lightbox-scroll {
+  overflow: auto;
+  max-height: calc(var(--app-height) - 120px);
+  overscroll-behavior: contain;
+  -webkit-overflow-scrolling: touch;
+}
+.lightbox-zoom {
+  display: block;
+  padding: 0;
+  border: 0;
+  background: none;
+  width: 100%;
+  cursor: zoom-in;
+}
+.lightbox-zoom.is-zoomed {
+  width: 250%;
+  cursor: zoom-out;
+}
+.lightbox-hint {
+  padding: var(--s-2) var(--s-4) 0;
+  color: var(--ink-3);
+  font-size: var(--t-sm);
+  text-align: center;
 }
