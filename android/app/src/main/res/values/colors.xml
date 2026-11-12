@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="surface">#FAFAFC</color>
+    <color name="on_surface">#14162B</color>
+    <color name="on_surface_muted">#565A75</color>
+    <color name="accent">#3D4DDB</color>
+    <color name="on_accent">#FFFFFF</color>
+    <color name="warning">#8A5300</color>
+    <color name="error">#B3261E</color>
+
+    <!-- Launcher icon: the same in light and dark. -->
+    <color name="icon_background">#1B1F45</color>
+    <color name="icon_foreground">#FFFFFF</color>
+</resources>

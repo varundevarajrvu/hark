@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Vector</string>
+
+    <string name="setup_title">Connect to your server</string>
+    <string name="setup_explanation">Vector runs on your own server. Enter its address.</string>
+    <string name="setup_address_label">Server address</string>
+    <string name="setup_address_hint">192.168.1.20:8787 or https://vector.example.com</string>
+    <string name="setup_connect">Connect</string>
+    <string name="setup_connecting">Connecting…</string>
+    <string name="setup_cleartext_warning">This address uses plain http. Everything sent to it, including your password, is unencrypted and can be read by anyone on the same network. Use it only on your home Wi-Fi or over a VPN.</string>
+
+    <string name="error_address_empty">Enter the address of your Vector server.</string>
+    <string name="error_address_malformed">That doesn\'t look like a server address. Try something like 192.168.1.20:8787.</string>
+    <string name="error_address_scheme">Only http:// and https:// addresses are supported.</string>
+    <string name="error_address_credentials">Leave the user name and password out of the address. You sign in after connecting.</string>
+    <string name="error_unreachable">Couldn\'t reach %1$s. Check that the server is running, that it listens on the network (HOST=0.0.0.0), and that this phone is on the same Wi-Fi or VPN.</string>
+    <string name="error_not_vector">Something answered at %1$s, but it isn\'t a Vector server. Check the address and port.</string>
+    <string name="error_tls">The secure connection to %1$s failed: its certificate isn\'t trusted by this phone or doesn\'t match the address. Vector won\'t connect past a certificate error.</string>
+    <string name="error_redirect">That address redirects to %1$s. Tap Connect to use it instead.</string>
+    <string name="error_detail">Details: %1$s</string>
+
+    <string name="load_failed_title">Can\'t reach your server</string>
+    <string name="load_failed_body">Vector couldn\'t load %1$s. Check that the server is running and that this phone is on the same network.</string>
+    <string name="load_failed_tls_title">Secure connection failed</string>
+    <string name="load_failed_tls_body">The certificate for %1$s isn\'t trusted or doesn\'t match the address. Vector won\'t load a page past a certificate error.</string>
+    <string name="load_failed_http">The server answered with an error (HTTP %1$d).</string>
+    <string name="action_retry">Retry</string>
+    <string name="action_change_server">Change server</string>
+    <string name="shortcut_change_server">Change server</string>
+    <string name="no_browser">No browser is installed to open that link.</string>
+    <string name="loading_page">Loading</string>
+</resources>

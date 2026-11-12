@@ -41,7 +41,8 @@ data class Origin(val scheme: String, val host: String, val port: Int) {
             // rawAuthority is checked as well as userInfo: for authorities java.net.URI treats as
             // "registry based" userInfo is null even though an '@' is present.
             if (uri.rawUserInfo != null || uri.rawAuthority?.contains('@') == true) return null
-            val host = uri.host?.lowercase(Locale.ROOT)?.trimEnd('.') ?: return null
+            // No trailing-dot trimming here: browsers treat "host." and "host" as different origins.
+            val host = uri.host?.lowercase(Locale.ROOT) ?: return null
             if (host.isEmpty()) return null
             val port = if (uri.port == -1) defaultPort(scheme) else uri.port
             if (port !in 1..65535) return null
@@ -89,17 +90,19 @@ fun normalizeServerAddress(input: String): AddressResult {
     val parsed = Origin.of(withScheme) ?: return AddressResult.Invalid(AddressResult.Reason.MALFORMED)
     if (!isPlausibleHost(parsed.host)) return AddressResult.Invalid(AddressResult.Reason.MALFORMED)
 
-    if (explicit != null) return AddressResult.Ok(parsed)
+    val host = parsed.host.trimEnd('.')
+    if (host.isEmpty()) return AddressResult.Invalid(AddressResult.Reason.MALFORMED)
+    if (explicit != null) return AddressResult.Ok(parsed.copy(host = host))
 
     // No scheme typed: choose one, and re-derive the port if it was only the https default.
-    val scheme = if (isPrivateHost(parsed.host)) "http" else "https"
+    val scheme = if (isPrivateHost(host)) "http" else "https"
     val typedPort = try {
         URI(withScheme).port
     } catch (_: URISyntaxException) {
         -1
     }
     val port = if (typedPort == -1) Origin.defaultPort(scheme) else typedPort
-    return AddressResult.Ok(Origin(scheme, parsed.host, port))
+    return AddressResult.Ok(Origin(scheme, host, port))
 }
 
 private fun authorityOf(url: String): String {
@@ -219,7 +222,7 @@ fun classifyProbe(
     }
     if (status != 200 && status != 401) return ProbeVerdict.NotVector
     val isJsonType = contentType?.lowercase(Locale.ROOT)?.contains("json") == true
-    val trimmed = body.trimStart('﻿', ' ', '\t', '\r', '\n')
+    val trimmed = body.trimStart('\uFEFF', ' ', '\t', '\r', '\n')
     val looksJson = trimmed.startsWith("{") || trimmed.startsWith("[")
     return if (isJsonType && looksJson) ProbeVerdict.IsVector else ProbeVerdict.NotVector
 }

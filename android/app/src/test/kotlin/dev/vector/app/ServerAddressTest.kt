@@ -125,7 +125,6 @@ class ServerAddressTest {
         assertEquals(NavigationDecision.STAY, nav("http://my-server:8787/"))
         assertEquals(NavigationDecision.STAY, nav("http://my-server:8787/threads/1?x=1#/sheet"))
         assertEquals(NavigationDecision.STAY, nav("HTTP://MY-SERVER:8787/Path"))
-        assertEquals(NavigationDecision.STAY, nav("http://My-Server.:8787/"))
     }
 
     @Test fun defaultPortIsEquivalentToExplicitDefaultPort() {
@@ -141,7 +140,7 @@ class ServerAddressTest {
         assertEquals(NavigationDecision.EXTERNAL, nav("http://evil.com/#http://my-server:8787/"))
         assertEquals(NavigationDecision.EXTERNAL, nav("http://my-server.evil.com:8787/"))
         assertEquals(NavigationDecision.EXTERNAL, nav("http://evil-my-server:8787/"))
-        assertEquals(NavigationDecision.EXTERNAL, nav("http://my-server:8787.evil.com/".replace(":8787.", ".")))
+        assertEquals(NavigationDecision.EXTERNAL, nav("http://my-server.:8787/"))
     }
 
     @Test fun userinfoTricksNeverStay() {

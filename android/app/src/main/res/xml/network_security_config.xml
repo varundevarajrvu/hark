@@ -1,0 +1,16 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+    Cleartext is permitted for every host because the server address is chosen by the user at
+    runtime and is very often a LAN address (http://192.168.x.x:8787); this file cannot list
+    such addresses ahead of time. HTTPS connections trust the system certificate store only:
+    user-installed CAs are not trusted and certificate errors are never bypassed in code.
+-->
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <base-config
+        cleartextTrafficPermitted="true"
+        tools:ignore="InsecureBaseConfiguration">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>
