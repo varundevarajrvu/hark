@@ -159,7 +159,8 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
   }, [route]);
 
   const title = projectName ?? threadLabel ?? TITLES[route.name];
-  const hasFloor = route.name === 'home' || route.name === 'chat' || route.name === 'project' || route.name === 'thread';
+  const hasFloor = route.name === 'home' || route.name === 'chat' || route.name === 'project' || route.name === 'thread' || route.name === 'memory';
+  const hasBar = !hasFloor && pending.length > 0;
   const moreCurrent = MORE.some((m) => m.match.includes(route.name));
 
   return (
@@ -185,15 +186,15 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
         </button>
       </header>
 
-      <main id="main" ref={mainRef} tabIndex={-1} className={hasFloor ? 'main main-fixed' : 'main'}>
+      <main id="main" ref={mainRef} tabIndex={-1} className={hasFloor ? 'main main-fixed' : hasBar ? 'main has-bar' : 'main'}>
         {children}
       </main>
 
-      {hasFloor ? null : (
-        <div className="floor floor-fixed">
+      {hasBar ? (
+        <div className="floor">
           <ConsentBar />
         </div>
-      )}
+      ) : null}
 
       <nav className="dock" aria-label="Primary">
         {DOCK.map((item) => (

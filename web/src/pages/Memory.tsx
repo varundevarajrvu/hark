@@ -1,25 +1,127 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type FormEvent } from 'react';
 import type { Memory } from '../../../shared/types.ts';
-import { refresh, sendMessage } from '../actions.ts';
+import { refresh } from '../actions.ts';
 import { api, errorText } from '../api.ts';
-import { ConfirmDialog, Empty, ErrorNote, Icon, Loading, PageHeader, PromptChip, Spinner, Switch } from '../components/ui.tsx';
-import { navigate } from '../router.ts';
-import { toast, useStore } from '../store.ts';
+import { ConsentBar } from '../components/cards.tsx';
+import { ConfirmDialog, Dialog, ErrorNote, Icon, Loading, Spinner } from '../components/ui.tsx';
+import { setState, toast, useStore } from '../store.ts';
 
-function MemoryRow({ memory }: { memory: Memory }) {
-  const [editing, setEditing] = useState(false);
+const EXAMPLES = ["I'm vegetarian", 'I prefer aisle seats', 'My sister Divya lives in Pune'];
+const GENERAL = 'general';
+
+function learned(iso: string, timeZone?: string): string {
+  const date = new Date(iso);
+  if (Number.isNaN(date.getTime())) return '';
+  const sameYear = date.getFullYear() === new Date().getFullYear();
+  const options: Intl.DateTimeFormatOptions = sameYear ? { day: 'numeric', month: 'short' } : { month: 'short', year: 'numeric' };
+  try {
+    return new Intl.DateTimeFormat('en-GB', { ...options, timeZone }).format(date);
+  } catch {
+    return new Intl.DateTimeFormat('en-GB', options).format(date);
+  }
+}
+
+/** Categories A→Z, with uncategorised memories last as "general". */
+function groupByCategory(memories: Memory[]): { name: string; items: Memory[] }[] {
+  const groups = new Map<string, Memory[]>();
+  for (const memory of memories) {
+    const name = memory.category.trim().toLowerCase() || GENERAL;
+    const list = groups.get(name);
+    if (list) list.push(memory);
+    else groups.set(name, [memory]);
+  }
+  return [...groups.entries()]
+    .sort(([a], [b]) => (a === GENERAL ? 1 : b === GENERAL ? -1 : a.localeCompare(b)))
+    .map(([name, items]) => ({ name, items }));
+}
+
+// ───────────────────────── Edit sheet ─────────────────────────
+
+function MemorySheet({ memory, timezone, onClose }: { memory: Memory; timezone?: string; onClose: () => void }) {
   const [content, setContent] = useState(memory.content);
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<'save' | 'forget' | null>(null);
   const [error, setError] = useState('');
 
   const save = async (e: FormEvent) => {
     e.preventDefault();
-    setBusy(true);
+    setBusy('save');
     setError('');
     try {
       await api.updateMemory(memory.id, content.trim());
       await refresh('memories');
-      setEditing(false);
+      onClose();
+    } catch (err) {
+      setError(errorText(err));
+      setBusy(null);
+    }
+  };
+
+  const forget = async () => {
+    setBusy('forget');
+    setError('');
+    try {
+      await api.deleteMemory(memory.id);
+      await refresh('memories');
+      onClose();
+    } catch (err) {
+      setError(errorText(err));
+      setBusy(null);
+    }
+  };
+
+  return (
+    <Dialog title="Memory" variant="sheet" onClose={onClose}>
+      <form className="stack" onSubmit={(e) => void save(e)}>
+        <p className="mem-sheet-meta">
+          <span className="tag">{memory.category.trim() || GENERAL}</span>
+          <span className="label">Learned {learned(memory.createdAt, timezone)}</span>
+        </p>
+        <label className="field">
+          <span>What Vector knows</span>
+          <textarea className="mem-edit" rows={3} value={content} onChange={(e) => setContent(e.target.value)} required maxLength={2000} />
+        </label>
+        <ErrorNote>{error}</ErrorNote>
+        <button type="submit" className="btn btn-primary btn-block btn-verb" disabled={busy !== null || !content.trim() || content.trim() === memory.content}>
+          {busy === 'save' ? <Spinner /> : null}
+          Save
+        </button>
+        <button type="button" className="btn btn-danger-quiet" disabled={busy !== null} onClick={() => void forget()}>
+          {busy === 'forget' ? <Spinner /> : null}
+          Forget this
+        </button>
+      </form>
+    </Dialog>
+  );
+}
+
+// ───────────────────────── Teach pill ─────────────────────────
+
+function TeachPill({ categories, seed }: { categories: string[]; seed: { text: string; n: number } }) {
+  const [text, setText] = useState('');
+  const [category, setCategory] = useState('');
+  const [picking, setPicking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const input = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    if (!seed.n) return;
+    setText(seed.text);
+    input.current?.focus();
+  }, [seed]);
+
+  const submit = async (e: FormEvent) => {
+    e.preventDefault();
+    const content = text.trim();
+    if (!content || busy) return;
+    setBusy(true);
+    setError('');
+    try {
+      const tag = category.trim();
+      await api.createMemory({ content, ...(tag ? { category: tag } : {}) });
+      setText('');
+      setPicking(false);
+      await refresh('memories');
     } catch (err) {
       setError(errorText(err));
     } finally {
@@ -27,101 +129,71 @@ function MemoryRow({ memory }: { memory: Memory }) {
     }
   };
 
-  const remove = async () => {
-    setBusy(true);
-    try {
-      await api.deleteMemory(memory.id);
-      await refresh('memories');
-    } catch (err) {
-      toast(errorText(err), 'error');
-      setBusy(false);
-    }
-  };
-
-  if (editing) {
-    return (
-      <li className="row row-editing">
-        <form className="stack stack-tight" onSubmit={(e) => void save(e)}>
-          <label className="field">
-            <span className="sr-only">Memory</span>
-            <textarea rows={2} value={content} onChange={(e) => setContent(e.target.value)} required maxLength={2000} autoFocus />
-          </label>
-          <ErrorNote>{error}</ErrorNote>
-          <div className="row-actions">
-            <button type="submit" className="btn btn-sm btn-primary" disabled={busy || !content.trim()}>
-              {busy ? <Spinner /> : null}
-              Save
-            </button>
-            <button
-              type="button"
-              className="btn btn-sm"
-              onClick={() => {
-                setEditing(false);
-                setContent(memory.content);
-              }}
-            >
-              Cancel
-            </button>
-          </div>
-        </form>
-      </li>
-    );
-  }
   return (
-    <li className="row">
-      <div className="row-text">
-        <p>{memory.content}</p>
-        {memory.category ? <span className="tag">{memory.category}</span> : null}
-      </div>
-      <div className="row-actions">
-        <button type="button" className="icon-btn" aria-label={`Edit memory: ${memory.content}`} onClick={() => setEditing(true)}>
-          <Icon name="edit" size={16} />
+    <form className="composer teach" onSubmit={(e) => void submit(e)} aria-label="Teach Vector something">
+      <ErrorNote>{error}</ErrorNote>
+      {picking ? (
+        <div className="teach-tags" role="group" aria-label="Category">
+          <button type="button" className="chip" aria-pressed={!category.trim()} onClick={() => (setCategory(''), setPicking(false))}>
+            {GENERAL}
+          </button>
+          {categories.map((name) => (
+            <button key={name} type="button" className="chip" aria-pressed={category.trim().toLowerCase() === name} onClick={() => (setCategory(name), setPicking(false))}>
+              {name}
+            </button>
+          ))}
+          <input type="text" className="teach-new" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="new category" aria-label="New category" maxLength={40} autoCapitalize="off" />
+        </div>
+      ) : null}
+      <div className="composer-pill">
+        <input
+          ref={input}
+          type="text"
+          className="teach-input"
+          value={text}
+          onChange={(e) => (setText(e.target.value), error && setError(''))}
+          aria-label="Something Vector should know about you"
+          placeholder="Teach Vector something"
+          maxLength={2000}
+          enterKeyHint="done"
+        />
+        <button type="button" className="teach-tag" aria-expanded={picking} aria-label={`Category: ${category.trim() || GENERAL}. Change`} onClick={() => setPicking((open) => !open)}>
+          {category.trim() || GENERAL}
         </button>
-        <button type="button" className="icon-btn" aria-label={`Delete memory: ${memory.content}`} disabled={busy} onClick={() => void remove()}>
-          <Icon name="trash" size={16} />
+        <button type="submit" className="composer-btn composer-send" disabled={!text.trim() || busy} aria-label="Save memory">
+          {busy ? <Spinner /> : <Icon name="plus" size={20} />}
         </button>
       </div>
-    </li>
+    </form>
   );
 }
 
+// ───────────────────────── Page ─────────────────────────
+
 export function MemoryPage() {
   const memories = useStore((s) => s.memories);
-  const enabled = useStore((s) => s.user?.settings.memoryEnabled ?? true);
-  const mainThreadId = useStore((s) => s.mainThreadId);
+  const user = useStore((s) => s.user);
+  const enabled = user?.settings.memoryEnabled ?? true;
+  const timezone = user?.settings.timezone;
   const [loadError, setLoadError] = useState('');
-  const [content, setContent] = useState('');
-  const [category, setCategory] = useState('');
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
   const [toggling, setToggling] = useState(false);
+  const [editing, setEditing] = useState<Memory | null>(null);
   const [forgetting, setForgetting] = useState(false);
+  const [seed, setSeed] = useState({ text: '', n: 0 });
 
   useEffect(() => {
     refresh('memories').catch((err: unknown) => setLoadError(errorText(err)));
   }, []);
 
-  const add = async (e: FormEvent) => {
-    e.preventDefault();
-    setBusy(true);
-    setError('');
-    try {
-      await api.createMemory({ content: content.trim(), ...(category.trim() ? { category: category.trim() } : {}) });
-      setContent('');
-      setCategory('');
-      await refresh('memories');
-    } catch (err) {
-      setError(errorText(err));
-    } finally {
-      setBusy(false);
-    }
-  };
+  const groups = useMemo(() => groupByCategory(memories ?? []), [memories]);
+  const categories = useMemo(() => groups.map((g) => g.name).filter((name) => name !== GENERAL), [groups]);
+  const count = memories?.length ?? 0;
 
-  const toggle = async (next: boolean) => {
+  const toggle = async () => {
     setToggling(true);
     try {
-      await api.updateSettings({ memoryEnabled: next });
-      await refresh('settings');
+      const { user: next } = await api.updateSettings({ memoryEnabled: !enabled });
+      setState((s) => ({ ...s, user: next }));
     } catch (err) {
       toast(errorText(err), 'error');
     } finally {
@@ -129,78 +201,95 @@ export function MemoryPage() {
     }
   };
 
-  const ask = (text: string) => {
-    if (!mainThreadId) return;
-    void sendMessage(mainThreadId, text).then((failure) => (failure ? toast(failure, 'error') : navigate('#/chat')));
-  };
-
   return (
-    <div className="page">
-      <PageHeader title="Memory" lead="What Vector has learned about you. It uses these to answer without asking twice. You can read, correct and delete every one." />
+    <>
+      <div className="home-scroll">
+        <div className={`page memory${enabled ? '' : ' is-off'}`}>
+          <header className="mem-hero">
+            {memories !== null && count === 0 ? <div className="vfield" aria-hidden="true" /> : null}
+            <h2 className="mem-headline">
+              {memories === null ? (
+                <span className="mem-words">Memory</span>
+              ) : count === 0 ? (
+                <span className="mem-words">Nothing yet.</span>
+              ) : (
+                <>
+                  <span className="mem-num">{count}</span>
+                  <span className="mem-words">
+                    thing{count === 1 ? '' : 's'} Vector
+                    <br />
+                    knows about you
+                  </span>
+                </>
+              )}
+            </h2>
+            <div className="mem-state">
+              <button type="button" role="switch" aria-checked={enabled} className={`state-chip${enabled ? ' is-on' : ''}`} disabled={toggling} onClick={() => void toggle()}>
+                <span className={enabled ? 'pulse' : 'state-dot'} aria-hidden="true" />
+                Memory {enabled ? 'on' : 'off'}
+              </button>
+              <p className="mem-means">{enabled ? 'Vector reads these and adds to them as you talk.' : 'Vector is neither reading nor saving these.'}</p>
+            </div>
+          </header>
 
-      <section className="setting-card" aria-label="Memory switch">
-        <div className="setting-row">
-          <div>
-            <h2 id="mem-switch">Memory is {enabled ? 'on' : 'off'}</h2>
-            <p id="mem-switch-desc" className="muted">
-              {enabled
-                ? 'Vector reads these memories and saves new ones as you talk.'
-                : 'Vector is not reading or saving anything. What is listed below stays until you delete it.'}
-            </p>
-          </div>
-          <Switch checked={enabled} disabled={toggling} onChange={(next) => void toggle(next)} label="Memory" describedBy="mem-switch-desc" />
+          {memories === null ? (
+            loadError ? <ErrorNote>{loadError}</ErrorNote> : <Loading label="Loading memories" />
+          ) : count === 0 ? (
+            <section className="mem-empty" aria-label="Examples">
+              <p className="muted">Tell it once and it stops asking. Try one of these.</p>
+              <div className="prompt-grid">
+                {EXAMPLES.map((example) => (
+                  <button key={example} type="button" className="prompt-chip" onClick={() => setSeed((prev) => ({ text: example, n: prev.n + 1 }))}>
+                    <span>{example}</span>
+                  </button>
+                ))}
+              </div>
+            </section>
+          ) : (
+            <>
+              {groups.map((group) => (
+                <section key={group.name} className="mem-group" aria-label={`${group.name}, ${group.items.length}`}>
+                  <h3 className="label mem-group-head">
+                    <span>{group.name}</span>
+                    <span>{String(group.items.length).padStart(2, '0')}</span>
+                  </h3>
+                  <ul>
+                    {group.items.map((memory) => (
+                      <li key={memory.id}>
+                        <button type="button" className="mem-row" onClick={() => setEditing(memory)} aria-haspopup="dialog">
+                          <span className="mem-text">{memory.content}</span>
+                          <span className="label mem-date">{learned(memory.createdAt, timezone)}</span>
+                        </button>
+                      </li>
+                    ))}
+                  </ul>
+                </section>
+              ))}
+              <button type="button" className="danger-row" onClick={() => setForgetting(true)}>
+                <span>Forget everything</span>
+                <span className="label">
+                  {count} memor{count === 1 ? 'y' : 'ies'}
+                </span>
+              </button>
+            </>
+          )}
         </div>
-      </section>
+      </div>
 
-      <form className="inline-form" onSubmit={(e) => void add(e)} aria-label="Add a memory">
-        <label className="field field-grow">
-          <span>Add a memory</span>
-          <input type="text" value={content} onChange={(e) => setContent(e.target.value)} placeholder="I'm vegetarian" maxLength={2000} required />
-        </label>
-        <label className="field field-narrow">
-          <span>
-            Category <em className="optional">optional</em>
-          </span>
-          <input type="text" value={category} onChange={(e) => setCategory(e.target.value)} placeholder="food" maxLength={40} />
-        </label>
-        <button type="submit" className="btn btn-primary" disabled={busy || !content.trim()}>
-          {busy ? <Spinner /> : <Icon name="plus" size={16} />}
-          Add
-        </button>
-      </form>
-      <ErrorNote>{error}</ErrorNote>
+      <div className="floor">
+        <ConsentBar />
+        <TeachPill categories={categories} seed={seed} />
+      </div>
 
-      {memories === null ? (
-        loadError ? <ErrorNote>{loadError}</ErrorNote> : <Loading label="Loading memories" />
-      ) : memories.length ? (
-        <>
-          <div className="section-head">
-            <h2>Remembered</h2>
-            <span className="count">{memories.length}</span>
-            <button type="button" className="btn btn-sm btn-danger-quiet section-head-action" onClick={() => setForgetting(true)}>
-              Forget everything
-            </button>
-          </div>
-          <ul className="rows">
-            {memories.map((m) => (
-              <MemoryRow key={m.id} memory={m} />
-            ))}
-          </ul>
-        </>
-      ) : (
-        <Empty icon="memory" title="Nothing remembered yet.">
-          <p>Add something above, or just tell Vector in chat:</p>
-          <div className="prompt-row">
-            <PromptChip text="Remember that I'm vegetarian" onPick={ask} />
-            <PromptChip text="Remember that I prefer aisle seats" onPick={ask} />
-          </div>
-        </Empty>
-      )}
-
+      {editing ? <MemorySheet memory={editing} timezone={timezone} onClose={() => setEditing(null)} /> : null}
       {forgetting ? (
         <ConfirmDialog
           title="Forget everything?"
-          body={<p>All {memories?.length ?? 0} memories will be deleted for good. Vector will start from a blank slate. This cannot be undone.</p>}
+          body={
+            <p>
+              All {count} memories are deleted for good. Vector starts from a blank slate. This cannot be undone.
+            </p>
+          }
           confirmLabel="Forget everything"
           danger
           onClose={() => setForgetting(false)}
@@ -210,6 +299,6 @@ export function MemoryPage() {
           }}
         />
       ) : null}
-    </div>
+    </>
   );
 }

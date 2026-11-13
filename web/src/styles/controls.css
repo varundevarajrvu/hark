@@ -116,6 +116,7 @@
   :root:not(.x) .pulse:not(.on-ink .pulse) {
     box-shadow: 0 0 0 4px var(--fg);
     margin: 0 4px;
+    animation-name: pulse-ring;
   }
 }
 .loading {
@@ -743,6 +744,9 @@ input[readonly] {
 .confirm-body {
   color: var(--muted);
   font-size: var(--f-read);
+}
+.dialog-full {
+  height: calc(var(--app-height) - 28px - env(safe-area-inset-top));
 }
 .dialog-lightbox {
   inset: 0;

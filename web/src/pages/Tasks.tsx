@@ -2,7 +2,7 @@ import { useMemo, useState, type FormEvent } from 'react';
 import type { ScheduledTask } from '../../../shared/types.ts';
 import { labelThread, refresh, sendMessage } from '../actions.ts';
 import { api, errorText } from '../api.ts';
-import { ConfirmDialog, Dialog, Empty, ErrorNote, Icon, PageHeader, PromptChip, Spinner, Switch } from '../components/ui.tsx';
+import { ConfirmDialog, Dialog, Empty, ErrorNote, Icon, PageHeader, PromptChip, Spinner, Switch, WithArrows } from '../components/ui.tsx';
 import { CRON_PRESETS, describeCron, formatDateTime, relativeTime, timezoneList } from '../lib/format.ts';
 import { navigate, threadHref } from '../router.ts';
 import { toast, useStore } from '../store.ts';
@@ -149,7 +149,9 @@ function TaskCard({ task, onEdit }: { task: ScheduledTask; onEdit: () => void })
     <li className={`task${task.enabled ? '' : ' is-off'}`}>
       <div className="task-main">
         <div className="task-title-row">
-          <h3>{task.title}</h3>
+          <h3>
+            <WithArrows text={task.title} />
+          </h3>
           <Switch checked={task.enabled} disabled={busy === 'toggle'} onChange={(next) => void toggle(next)} label={`${task.title}: ${task.enabled ? 'on' : 'off'}`} />
         </div>
         <p className="task-when">

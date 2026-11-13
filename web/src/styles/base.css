@@ -122,6 +122,12 @@ main:focus-visible {
 .small {
   font-size: var(--f-sm);
 }
+.arrow {
+  display: inline-block;
+  flex: none;
+  margin: 0 0.18em;
+  vertical-align: -0.06em;
+}
 .icon,
 .mark {
   flex: none;
@@ -184,6 +190,15 @@ main:focus-visible {
   50% {
     opacity: 0.3;
     transform: scale(0.7);
+  }
+}
+@keyframes pulse-ring {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(0.72);
   }
 }
 @keyframes caret {

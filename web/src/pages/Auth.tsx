@@ -1,7 +1,7 @@
 import { useState, type FormEvent } from 'react';
 import { signIn, signUp } from '../actions.ts';
 import { errorText } from '../api.ts';
-import { ErrorNote, Mark, Spinner } from '../components/ui.tsx';
+import { Arrow, ErrorNote, Mark, Spinner } from '../components/ui.tsx';
 
 const MIN_PASSWORD = 10;
 
@@ -94,7 +94,7 @@ export function AuthPage() {
           <button type="submit" className="btn btn-primary btn-block btn-verb" disabled={busy}>
             {busy ? <Spinner /> : null}
             {creating ? 'Create account' : 'Sign in'}
-            <span aria-hidden="true">→</span>
+            <Arrow />
           </button>
           <p className="label auth-foot">Self-hosted · your data stays on this server</p>
         </form>

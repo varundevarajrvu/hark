@@ -4,7 +4,7 @@ import { labelThread, refresh, sendMessage } from '../actions.ts';
 import { api, errorText, panelFrameUrl } from '../api.ts';
 import { ConsentBar } from '../components/cards.tsx';
 import { Composer, STARTER_PROMPTS } from '../components/thread.tsx';
-import { ConfirmDialog, ErrorNote, Icon, PromptChip, Spinner } from '../components/ui.tsx';
+import { Arrow, ConfirmDialog, ErrorNote, Icon, PromptChip, Spinner, WithArrows } from '../components/ui.tsx';
 import { formatTime, greeting, relativeTime } from '../lib/format.ts';
 import { navigate, threadHref } from '../router.ts';
 import { pendingApprovals, toast, useStore } from '../store.ts';
@@ -64,7 +64,9 @@ function Ticket({ action, lead }: { action: ActionItem; lead: boolean }) {
           Dismiss
         </button>
       </div>
-      <p className="ticket-title">{action.title}</p>
+      <p className="ticket-title">
+        <WithArrows text={action.title} />
+      </p>
       <p className="ticket-detail">{action.detail}</p>
       {running ? (
         <p className="ticket-running label">
@@ -74,7 +76,7 @@ function Ticket({ action, lead }: { action: ActionItem; lead: boolean }) {
       ) : (
         <button type="button" className={`ticket-verb${lead ? ' is-go' : ''}`} disabled={busy !== null} onClick={() => void run()}>
           <span>{action.verb}</span>
-          {busy === 'run' ? <Spinner /> : <span aria-hidden="true">→</span>}
+          {busy === 'run' ? <Spinner /> : <Arrow />}
         </button>
       )}
     </li>

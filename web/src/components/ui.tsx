@@ -47,6 +47,7 @@ const PATHS = {
   folder: 'M3 6h6l2 2.500h10V19H3z',
   panel: 'M4 5h16v14H4zM4 9.500h16M9.500 9.500V19',
   chevron: 'm9 6 6 6-6 6',
+  right: 'M4.500 12H19M13 6l6 6-6 6',
 } as const;
 
 export type IconName = keyof typeof PATHS;
@@ -138,12 +139,42 @@ export function Empty(props: { icon: IconName; title: string; children?: ReactNo
   );
 }
 
+/** An arrow drawn, not typed: the text fonts' Latin subsets have no arrow glyph. */
+export function Arrow({ size = '0.8em' }: { size?: number | string }) {
+  return (
+    <svg className="arrow" width={size} height={size} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.6" strokeLinecap="square" aria-hidden="true" focusable="false">
+      <path d="M4 12h15M13 5.500l6.500 6.500-6.500 6.500" />
+    </svg>
+  );
+}
+
+/** Text with any "→" replaced by a drawn arrow (and read as "to"). */
+export function WithArrows({ text }: { text: string }) {
+  const pieces = text.split('→');
+  return (
+    <>
+      {pieces.map((piece, i) => (
+        <span key={i}>
+          {i > 0 ? (
+            <>
+              <span className="sr-only">to</span>
+              <Arrow />
+            </>
+          ) : null}
+          {piece}
+        </span>
+      ))}
+    </>
+  );
+}
+
 /** An example prompt the user can press to send. */
 export function PromptChip({ text, onPick, disabled }: { text: string; onPick: (text: string) => void; disabled?: boolean }) {
   return (
     <button type="button" className="prompt-chip" onClick={() => onPick(text)} disabled={disabled}>
-      <span>{text}</span>
-      <Icon name="arrow" size={14} />
+      <span>
+        <WithArrows text={text} />
+      </span>
     </button>
   );
 }
@@ -193,7 +224,7 @@ export function Dialog(props: {
   title: string;
   onClose: () => void;
   children: ReactNode;
-  variant?: 'modal' | 'sheet' | 'lightbox';
+  variant?: 'modal' | 'sheet' | 'lightbox' | 'full';
   wide?: boolean;
 }) {
   const ref = useRef<HTMLDialogElement>(null);

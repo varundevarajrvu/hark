@@ -132,19 +132,9 @@
   display: flex;
   flex-direction: column;
 }
-.floor-fixed {
-  position: absolute;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  z-index: 9;
-  pointer-events: none;
-}
-.floor-fixed > * {
-  pointer-events: auto;
-}
-.floor-fixed .consent-bar {
-  box-shadow: 0 10px 30px rgb(0 0 0 / 0.3);
+/* A pending-consent bar is docked under the page, so it never covers what scrolls. */
+.main.has-bar .page {
+  padding-bottom: var(--s-5);
 }
 
 /* ── Dock ── */
