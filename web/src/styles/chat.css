@@ -1106,3 +1106,314 @@
     animation: none;
   }
 }
+
+/* ── Reading replies aloud ── */
+.speak-toggle {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--r-pill);
+  background: none;
+  color: var(--muted);
+}
+.speak-toggle.is-on {
+  color: var(--live);
+}
+.speak-toggle.is-speaking {
+  background: var(--live-tint);
+  color: var(--live);
+}
+.spk-bars {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  height: 14px;
+}
+.spk-bars i {
+  width: 3px;
+  height: 100%;
+  border-radius: 2px;
+  background: currentColor;
+  transform: scaleY(0.3);
+  animation: level 0.8s ease-in-out infinite;
+}
+.spk-bars i:nth-child(2) {
+  animation-delay: -0.45s;
+}
+.spk-bars i:nth-child(3) {
+  animation-delay: -0.15s;
+}
+.spk-bars i:nth-child(4) {
+  animation-delay: -0.6s;
+}
+.msg-speaking {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+  padding: 2px 8px;
+  border: 1px solid var(--live-line);
+  border-radius: var(--r-pill);
+  background: var(--live-tint);
+  color: var(--live);
+  font: inherit;
+  letter-spacing: inherit;
+  text-transform: inherit;
+}
+.msg-speaking::after {
+  content: '';
+  position: absolute;
+  inset: -12px -4px; /* 44 px hit area */
+}
+.msg-speaking .spk-bars {
+  height: 11px;
+}
+
+/* ── Talk: the entry point ── */
+.composer-talk {
+  padding: 0 16px 0 13px;
+  background: var(--s3);
+  color: var(--fg);
+  font-family: var(--display);
+  font-size: var(--f-read);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+.composer-talk .icon {
+  color: var(--live);
+}
+
+/* ── Talk: the hands-free surface. Ink in both themes, so lime is a true signal on it. ── */
+.talk {
+  position: relative;
+  display: grid;
+  gap: 10px;
+  padding: 16px 16px 14px 18px;
+  border: 1px solid var(--live-line);
+  border-radius: 28px;
+  background:
+    radial-gradient(120% 90% at 100% 0%, rgb(200 255 46 / 0.13), transparent 60%),
+    var(--s1);
+  box-shadow: var(--inner), 0 18px 40px rgb(0 0 0 / 0.35);
+  overflow: hidden;
+  animation: slip-in 0.35s cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+.talk-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s-3);
+}
+.talk-kicker {
+  order: -1;
+}
+.talk-word {
+  display: flex;
+  align-items: baseline;
+  margin-top: -4px;
+  font-size: clamp(2.75rem, 14vw, 3.5rem);
+  font-weight: 800;
+  letter-spacing: -0.055em;
+  line-height: 0.95;
+  color: var(--fg);
+}
+.talk-listening .talk-word,
+.talk-speaking .talk-word {
+  color: var(--lime);
+}
+.talk-paused .talk-word {
+  color: var(--consent-fg);
+}
+.talk-line {
+  min-height: 3em;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--fg);
+  font-family: var(--text);
+  font-size: var(--f-md);
+  line-height: 1.4;
+  text-align: left;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.talk-line.is-placeholder {
+  color: var(--muted);
+}
+.talk-line-tap {
+  cursor: text;
+  text-decoration: underline dashed var(--line-2);
+  text-underline-offset: 6px;
+}
+.talk-speaking .talk-line {
+  color: var(--muted);
+}
+.talk-edit {
+  width: 100%;
+  min-height: 3em;
+  padding: 10px 12px;
+  border: 1px solid var(--lime);
+  border-radius: var(--r-ctl);
+  background: var(--bg);
+  color: var(--fg);
+  font-size: var(--f-md);
+  line-height: 1.4;
+  resize: none;
+}
+.talk-count {
+  display: grid;
+  gap: 6px;
+}
+.talk-count-bar {
+  position: relative;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--line-2);
+  overflow: hidden;
+}
+.talk-count-bar::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: var(--lime);
+  transform-origin: left;
+  animation: countdown 2s linear both;
+}
+.talk-actions {
+  display: flex;
+  gap: var(--s-2);
+  margin-top: 4px;
+}
+.talk-btn {
+  flex: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  min-height: 56px;
+  padding: 0 18px;
+  border: 1px solid var(--line-2);
+  border-radius: var(--r-pill);
+  background: transparent;
+  color: var(--fg);
+  font-family: var(--display);
+  font-size: var(--f-md);
+  font-weight: 750;
+  letter-spacing: -0.02em;
+  transition: transform 0.08s ease-out;
+}
+.talk-btn:active:not(:disabled) {
+  transform: scale(0.96);
+}
+.talk-end {
+  flex: 0 0 auto;
+  min-width: 96px;
+  margin-left: auto;
+}
+.talk-cancel,
+.talk-stop {
+  border-color: var(--fg);
+  background: var(--fg);
+  color: var(--bg);
+}
+.talk-send {
+  border-color: var(--lime);
+  background: var(--lime);
+  color: var(--ink);
+}
+.talk-send:disabled {
+  opacity: 0.5;
+}
+
+/* The signal: seven bars that say what state the conversation is in. */
+.talk-signal {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  height: 40px;
+}
+.talk-signal i {
+  width: 5px;
+  height: 100%;
+  border-radius: 3px;
+  background: var(--lime);
+  transform: scaleY(0.18);
+  opacity: 0.45;
+}
+.talk-listening .talk-signal i,
+.talk-speaking .talk-signal i {
+  opacity: 1;
+  animation: level 0.9s ease-in-out infinite;
+}
+.talk-speaking .talk-signal i {
+  animation-duration: 0.6s;
+}
+.talk-signal i:nth-child(2) {
+  animation-delay: -0.5s;
+}
+.talk-signal i:nth-child(3) {
+  animation-delay: -0.2s;
+}
+.talk-signal i:nth-child(4) {
+  animation-delay: -0.75s;
+}
+.talk-signal i:nth-child(5) {
+  animation-delay: -0.35s;
+}
+.talk-signal i:nth-child(6) {
+  animation-delay: -0.6s;
+}
+.talk-signal i:nth-child(7) {
+  animation-delay: -0.1s;
+}
+.talk-heard .talk-signal i,
+.talk-editing .talk-signal i {
+  opacity: 1;
+  transform: scaleY(0.55);
+}
+.talk-working .talk-signal i {
+  opacity: 1;
+  animation: wave 1.2s ease-in-out infinite;
+}
+.talk-working .talk-signal i:nth-child(n) {
+  animation-delay: calc(var(--i, 0) * 0.1s);
+}
+.talk-working .talk-signal i:nth-child(2) { --i: 1; }
+.talk-working .talk-signal i:nth-child(3) { --i: 2; }
+.talk-working .talk-signal i:nth-child(4) { --i: 3; }
+.talk-working .talk-signal i:nth-child(5) { --i: 4; }
+.talk-working .talk-signal i:nth-child(6) { --i: 5; }
+.talk-working .talk-signal i:nth-child(7) { --i: 6; }
+.talk-paused .talk-signal i {
+  background: var(--consent);
+  opacity: 1;
+  transform: scaleY(0.3);
+}
+.talk-paused {
+  border-color: var(--consent-line);
+}
+/* Native: the system dialog is listening, not the page; the bars wait. */
+.talk-listening.is-native .talk-signal i {
+  animation: none;
+  opacity: 0.6;
+  transform: scaleY(0.3);
+}
+.talk-dots {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  margin-left: 14px;
+  border-radius: 50%;
+  background: var(--lime);
+  box-shadow: 13px 0 0 var(--lime), 26px 0 0 var(--lime);
+  animation: pulse 1.2s ease-in-out infinite;
+}

@@ -43,13 +43,18 @@ interface NativeBridge {
   onmessage: ((event: { data: unknown } | string) => void) | null;
 }
 
-type NativeReply = { type: 'speech.result'; id: string; text: string } | { type: 'speech.error'; id: string; error: string };
+interface NativeReply {
+  type: string;
+  id: string;
+  [key: string]: unknown;
+}
 
 function nativeBridge(): NativeBridge | null {
   const bridge = (window as unknown as { VectorNative?: unknown }).VectorNative as Partial<NativeBridge> | undefined;
   return bridge && typeof bridge.postMessage === 'function' ? (bridge as NativeBridge) : null;
 }
 
+/** Replies are matched to requests by id; a reply to an id we did not send is ignored. */
 const nativeWaiting = new Map<string, (reply: NativeReply) => void>();
 let nativeHooked: NativeBridge | null = null;
 
@@ -66,14 +71,63 @@ function hookNative(bridge: NativeBridge): void {
     } catch {
       reply = null;
     }
-    const waiter = reply && typeof reply.id === 'string' ? nativeWaiting.get(reply.id) : undefined;
-    if (reply && waiter && (reply.type === 'speech.result' || reply.type === 'speech.error')) {
-      nativeWaiting.delete(reply.id as string);
+    const waiter = reply && typeof reply.id === 'string' && typeof reply.type === 'string' ? nativeWaiting.get(reply.id) : undefined;
+    if (reply && waiter) {
       waiter(reply as NativeReply);
       return;
     }
     previous?.call(bridge, event); // not a reply to an id we sent
   };
+}
+
+function postNative(bridge: NativeBridge, message: Record<string, unknown>): boolean {
+  try {
+    bridge.postMessage(JSON.stringify(message));
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// ── What the app can do: asked once. An app that never answers predates the question: it can listen, not speak.
+
+export interface NativeCaps {
+  speech: boolean;
+  tts: boolean;
+}
+let caps: NativeCaps | null = null;
+let capsAsked = false;
+const capsListeners = new Set<() => void>();
+
+/** Ask the app what it supports (once). Call at startup; harmless without the app. */
+export function probeNative(timeoutMs = 1000): void {
+  if (capsAsked || typeof window === 'undefined') return;
+  const bridge = nativeBridge();
+  if (!bridge) return;
+  capsAsked = true;
+  hookNative(bridge);
+  const id = uniqueId();
+  const settle = (next: NativeCaps) => {
+    if (caps) return;
+    nativeWaiting.delete(id);
+    caps = next;
+    for (const fn of [...capsListeners]) fn();
+  };
+  nativeWaiting.set(id, (reply) => {
+    if (reply.type !== 'capabilities') return;
+    settle({ speech: reply.speech !== false, tts: reply.tts === true });
+  });
+  window.setTimeout(() => settle({ speech: true, tts: false }), timeoutMs);
+  if (!postNative(bridge, { type: 'capabilities', id })) settle({ speech: true, tts: false });
+}
+
+/** Changes to what the device can do (the app's answer arriving, voices loading). */
+export function onSpeechSupportChange(fn: () => void): () => void {
+  capsListeners.add(fn);
+  return () => capsListeners.delete(fn);
+}
+function supportChanged(): void {
+  for (const fn of [...capsListeners]) fn();
 }
 
 let idSeq = 0;
@@ -101,9 +155,12 @@ function startNative(bridge: NativeBridge, handlers: SpeechHandlers): SpeechSess
     handlers.onEnd();
   };
   nativeWaiting.set(id, (reply) => {
-    if (over) return;
+    if (over || (reply.type !== 'speech.result' && reply.type !== 'speech.error')) return;
     if (reply.type === 'speech.result') handlers.onFinal(typeof reply.text === 'string' ? reply.text : '');
-    else handlers.onError(reply.error in NATIVE_ERRORS ? (NATIVE_ERRORS[reply.error] ?? null) : SPEECH_TEXT.unavailable);
+    else {
+      const code = String(reply.error);
+      handlers.onError(code in NATIVE_ERRORS ? (NATIVE_ERRORS[code] ?? null) : SPEECH_TEXT.unavailable);
+    }
     end();
   });
   try {
@@ -229,14 +286,14 @@ function startWeb(Ctor: RecognitionCtor, handlers: SpeechHandlers): SpeechSessio
 /** Which provider a mic button would use right now, or null when there is none (render no button). */
 export function speechMode(): SpeechMode | null {
   if (typeof window === 'undefined') return null;
-  if (nativeBridge()) return 'native';
+  if (nativeBridge()) return caps && !caps.speech ? null : 'native';
   if (recognitionCtor()) return 'web';
   return null;
 }
 
 export function startSpeech(handlers: SpeechHandlers): SpeechSession | null {
   const bridge = nativeBridge();
-  if (bridge) return startNative(bridge, handlers);
+  if (bridge) return caps && !caps.speech ? null : startNative(bridge, handlers);
   const Ctor = recognitionCtor();
   if (Ctor) return startWeb(Ctor, handlers);
   return null;
@@ -248,4 +305,152 @@ export function appendSpoken(base: string, spoken: string): string {
   if (!words) return base;
   const head = base.replace(/\s+$/, '');
   return head ? `${head} ${words}` : words;
+}
+
+// ───────────────────────── Speaking (text to speech) ─────────────────────────
+
+export type TtsMode = 'native' | 'web';
+
+export interface Utterance {
+  mode: TtsMode;
+  /** Stop now. onEnd still runs, once. */
+  stop(): void;
+}
+
+const NATIVE_TTS_MAX = 4000;
+
+/**
+ * Which voice output this device has: the app (when it said so), else the browser's speechSynthesis, else none.
+ * Inside the app, nothing is offered until the app has answered (or failed to answer) the capabilities question.
+ */
+export function ttsMode(): TtsMode | null {
+  if (typeof window === 'undefined') return null;
+  if (nativeBridge()) {
+    if (!caps) return null;
+    if (caps.tts) return 'native';
+  }
+  return webSynth() ? 'web' : null;
+}
+
+function webSynth(): SpeechSynthesis | null {
+  const synth = (window as { speechSynthesis?: SpeechSynthesis }).speechSynthesis;
+  return synth && typeof synth.speak === 'function' && typeof window.SpeechSynthesisUtterance === 'function' ? synth : null;
+}
+
+let voice: SpeechSynthesisVoice | null | undefined;
+let voicesHooked = false;
+/** The best voice for the page's language; voices load asynchronously in Chrome, so this is re-picked when they arrive. */
+function pickVoice(synth: SpeechSynthesis): SpeechSynthesisVoice | null {
+  if (!voicesHooked) {
+    voicesHooked = true;
+    synth.addEventListener?.('voiceschanged', () => {
+      voice = undefined;
+      supportChanged();
+    });
+  }
+  if (voice !== undefined) return voice;
+  const voices = synth.getVoices?.() ?? [];
+  if (!voices.length) return null; // not loaded yet: let the engine use its default, try again next time
+  const lang = (navigator.language || 'en-US').toLowerCase();
+  const base = lang.split('-')[0] ?? lang;
+  const same = voices.filter((v) => v.lang.toLowerCase().replace('_', '-') === lang);
+  const near = voices.filter((v) => (v.lang.toLowerCase().split(/[-_]/)[0] ?? '') === base);
+  const pool = same.length ? same : near;
+  voice = pool.find((v) => v.localService) ?? pool.find((v) => v.default) ?? pool[0] ?? null;
+  return voice;
+}
+
+/** Sentence-sized pieces: Chrome cuts a long utterance off after about fifteen seconds. */
+export function chunkForSpeech(text: string, max = 180): string[] {
+  const sentences = text.match(/[^.!?…]+[.!?…]+["'”’)]*\s*|[^.!?…]+$/g) ?? [text];
+  const chunks: string[] = [];
+  let current = '';
+  for (const raw of sentences) {
+    const sentence = raw.trim();
+    if (!sentence) continue;
+    if (sentence.length > max) {
+      if (current) chunks.push(current), (current = '');
+      let rest = sentence;
+      while (rest.length > max) {
+        const cut = rest.lastIndexOf(' ', max);
+        const at = cut > max / 2 ? cut : max;
+        chunks.push(rest.slice(0, at).trim());
+        rest = rest.slice(at).trim();
+      }
+      current = rest;
+    } else if ((current + ' ' + sentence).trim().length > max) {
+      chunks.push(current);
+      current = sentence;
+    } else current = (current + ' ' + sentence).trim();
+  }
+  if (current) chunks.push(current);
+  return chunks;
+}
+
+let activeUtterance: Utterance | null = null;
+
+/** Speak `text`, replacing anything already being spoken. Returns null when there is no voice output. */
+export function speakText(text: string, onEnd: (error?: string) => void): Utterance | null {
+  activeUtterance?.stop();
+  const mode = ttsMode();
+  const bridge = nativeBridge();
+  let over = false;
+  const end = (error?: string) => {
+    if (over) return;
+    over = true;
+    if (activeUtterance === utterance) activeUtterance = null;
+    onEnd(error);
+  };
+  let utterance: Utterance;
+  if (mode === 'native' && bridge) {
+    hookNative(bridge);
+    const id = uniqueId();
+    nativeWaiting.set(id, (reply) => {
+      if (reply.type !== 'tts.done' && reply.type !== 'tts.error') return;
+      nativeWaiting.delete(id);
+      end(reply.type === 'tts.error' ? String(reply.error) : undefined);
+    });
+    utterance = {
+      mode,
+      stop: () => {
+        if (over) return;
+        nativeWaiting.delete(id);
+        postNative(bridge, { type: 'tts.stop' });
+        end();
+      },
+    };
+    activeUtterance = utterance;
+    if (!postNative(bridge, { type: 'tts.speak', id, text: text.slice(0, NATIVE_TTS_MAX) })) end('unavailable');
+    return utterance;
+  }
+  const synth = mode === 'web' ? webSynth() : null;
+  if (!synth) return null;
+  const chosen = pickVoice(synth);
+  const lang = navigator.language || 'en-US';
+  const chunks = chunkForSpeech(text);
+  utterance = {
+    mode: 'web',
+    stop: () => {
+      if (over) return;
+      end();
+      synth.cancel();
+    },
+  };
+  activeUtterance = utterance;
+  synth.cancel(); // anything queued by an earlier page state
+  chunks.forEach((chunk, i) => {
+    const u = new SpeechSynthesisUtterance(chunk);
+    u.lang = chosen?.lang ?? lang;
+    if (chosen) u.voice = chosen;
+    if (i === chunks.length - 1) u.onend = () => end();
+    u.onerror = (e) => end(e.error === 'interrupted' || e.error === 'canceled' ? undefined : String(e.error));
+    synth.speak(u);
+  });
+  if (!chunks.length) end();
+  return utterance;
+}
+
+/** Stop whatever is being spoken, on any provider. */
+export function stopSpeaking(): void {
+  activeUtterance?.stop();
 }

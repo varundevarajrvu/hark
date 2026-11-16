@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { appendSpoken, speechMode, startSpeech, type SpeechMode, type SpeechSession } from '../lib/speech.ts';
+import { silence } from '../lib/voiceOut.ts';
 import { toast } from '../store.ts';
 import { Icon } from './ui.tsx';
 
@@ -38,6 +39,7 @@ export function useVoice(opts: { value: string; setValue: (next: string) => void
   }, []);
 
   const start = () => {
+    silence(); // tapping the mic always cuts Vector off
     const base = latest.current.value;
     const set = (spoken: string) => alive.current && latest.current.setValue(appendSpoken(base, spoken));
     let finished = false;
@@ -90,17 +92,42 @@ const VOICE_LABEL: Record<VoiceState, string> = {
 };
 
 /** The mic in a composer pill. Listening: a lime button with live level bars. Waiting (native dialog): neutral. */
-export function MicButton({ voice, disabled }: { voice: Voice; disabled?: boolean }) {
+export function MicButton({ voice, disabled, onLongPress }: { voice: Voice; disabled?: boolean; onLongPress?: () => void }) {
+  const timer = useRef<number | null>(null);
+  const pressed = useRef(false);
   if (!voice.mode) return null;
   const on = voice.state !== 'idle';
+  const clear = () => {
+    if (timer.current !== null) window.clearTimeout(timer.current);
+    timer.current = null;
+  };
   return (
     <button
+      onPointerDown={() => {
+        pressed.current = false;
+        if (!onLongPress || on) return;
+        clear();
+        timer.current = window.setTimeout(() => {
+          pressed.current = true; // the click that follows the long press is not a tap
+          onLongPress();
+        }, 550);
+      }}
+      onPointerUp={clear}
+      onPointerLeave={clear}
+      onPointerCancel={clear}
+      onContextMenu={(e) => onLongPress && e.preventDefault()}
       type="button"
       className={`composer-btn composer-mic is-${voice.state}${voice.hearing ? ' is-hearing' : ''}`}
       aria-label={VOICE_LABEL[voice.state]}
       aria-pressed={on}
       disabled={disabled && !on}
-      onClick={voice.toggle}
+      onClick={() => {
+        if (pressed.current) {
+          pressed.current = false;
+          return;
+        }
+        voice.toggle();
+      }}
     >
       {voice.state === 'listening' ? (
         <span className="mic-bars" aria-hidden="true">

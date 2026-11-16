@@ -293,3 +293,20 @@ main:focus-visible {
     background-position: 0 140%;
   }
 }
+@keyframes countdown {
+  from {
+    transform: scaleX(0);
+  }
+  to {
+    transform: scaleX(1);
+  }
+}
+@keyframes wave {
+  0%,
+  100% {
+    transform: scaleY(0.2);
+  }
+  30% {
+    transform: scaleY(0.85);
+  }
+}

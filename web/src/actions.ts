@@ -12,6 +12,7 @@ import type {
   ServerEvent,
 } from '../../shared/types.ts';
 import { api, ApiError, errorText, setUnauthorizedHandler } from './api.ts';
+import { claimRun, noteEvent, silence } from './lib/voiceOut.ts';
 import {
   emptyThread,
   getState,
@@ -376,6 +377,8 @@ let localSeq = 0;
 /** Send a user message. Resolves to null on success, or to the text of the error. */
 export async function sendMessage(threadId: Id, text: string): Promise<string | null> {
   const localId = `local-${++localSeq}`;
+  silence();
+  claimRun(threadId);
   const wasRunning = Boolean(getState().running[threadId]);
   // Mark the thread busy before the request: the run can start (and even finish) before the 202 returns.
   setState((s) => ({
@@ -396,6 +399,7 @@ export async function sendMessage(threadId: Id, text: string): Promise<string | 
 }
 
 export async function cancelRun(threadId: Id): Promise<void> {
+  silence();
   try {
     await api.cancelThread(threadId);
   } catch (err) {
@@ -432,6 +436,11 @@ function markStreaming(s: State, threadId: Id, messageId: Id): State {
 }
 
 export function applyEvent(ev: ServerEvent): void {
+  reduce(ev);
+  noteEvent(ev, openThreadId); // reading replies aloud: only for runs this client started, in the open thread
+}
+
+function reduce(ev: ServerEvent): void {
   switch (ev.type) {
     case 'hello':
       return;

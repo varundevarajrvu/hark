@@ -7,6 +7,7 @@ import { Composer, STARTER_PROMPTS } from '../components/thread.tsx';
 import { Arrow, ConfirmDialog, ErrorNote, Icon, PromptChip, Spinner, WithArrows } from '../components/ui.tsx';
 import { dayKey, formatTime, greeting, relativeTime } from '../lib/format.ts';
 import { navigate, threadHref } from '../router.ts';
+import { claimRun, startTalk } from '../lib/voiceOut.ts';
 import { pendingApprovals, toast, useStore } from '../store.ts';
 import { ProjectDialog } from './Project.tsx';
 
@@ -31,6 +32,7 @@ function useTicket(action: ActionItem) {
     setBusy('run');
     try {
       const { threadId } = await api.runAction(action.id);
+      claimRun(threadId);
       labelThread(threadId, action.title);
       navigate(threadHref(threadId)); // straight to where you can watch it, and stop it
       void refresh('actions').catch(() => {});
@@ -233,6 +235,7 @@ export function HomePage() {
   const memories = useStore((s) => s.memories);
   const approvals = useStore((s) => s.approvals);
   const runningThreads = useStore((s) => s.running);
+  const mainThreadId = useStore((s) => s.mainThreadId);
   const [creating, setCreating] = useState(false);
   const sendToMain = useSendToMain();
 
@@ -391,7 +394,18 @@ export function HomePage() {
 
       <div className="floor">
         <ConsentBar />
-        <Composer onSend={sendToMain} label="Message Vector" />
+        <Composer
+          onSend={sendToMain}
+          label="Message Vector"
+          onTalk={
+            mainThreadId
+              ? () => {
+                  startTalk(mainThreadId);
+                  navigate('#/chat');
+                }
+              : undefined
+          }
+        />
       </div>
 
       {creating ? <ProjectDialog onClose={() => setCreating(false)} /> : null}

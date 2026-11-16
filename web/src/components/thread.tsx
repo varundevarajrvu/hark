@@ -8,6 +8,8 @@ import { ApprovalPart, ConsentBar, HandoffPart, TraceStack } from './cards.tsx';
 import { ErrorNote, Icon, Loading, Mark, PromptChip, Spinner } from './ui.tsx';
 import { MicButton, useVoice, voiceStatus } from './voice.tsx';
 import { speechMode } from '../lib/speech.ts';
+import { silence, startTalk, useVoiceOut } from '../lib/voiceOut.ts';
+import { TalkSurface } from './talk.tsx';
 
 export const STARTER_PROMPTS = [
   "Remember that I'm vegetarian",
@@ -24,8 +26,11 @@ export function Composer(props: {
   onStop?: () => void;
   placeholder?: string;
   label?: string;
+  /** Start a hands-free conversation (a Talk button when the field is empty, or a long press on the mic). */
+  onTalk?: () => void;
 }) {
   const [text, setText] = useState('');
+  const canTalk = useVoiceOut((v) => v.canTalk);
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
@@ -109,11 +114,16 @@ export function Composer(props: {
             }
           }}
         />
-        {props.running ? null : <MicButton voice={voice} disabled={sending} />}
+        {props.running ? null : <MicButton voice={voice} disabled={sending} onLongPress={canTalk ? props.onTalk : undefined} />}
         {props.running && props.onStop ? (
           <button type="button" className="composer-btn composer-stop" onClick={props.onStop}>
             <span className="stop-glyph" aria-hidden="true" />
             Stop
+          </button>
+        ) : canTalk && props.onTalk && !text.trim() && !listening && !sending ? (
+          <button type="button" className="composer-btn composer-talk" onClick={props.onTalk} aria-label="Talk: a hands-free conversation, replies read aloud">
+            <Icon name="wave" size={18} />
+            <span aria-hidden="true">Talk</span>
           </button>
         ) : (
           <button type="submit" className="composer-btn composer-send" disabled={!text.trim() || sending || listening} aria-label="Send">
@@ -195,7 +205,7 @@ function Elapsed({ since }: { since: string }) {
   );
 }
 
-const Message = memo(function Message(props: { message: ChatMessage; streaming: boolean; timezone?: string }) {
+const Message = memo(function Message(props: { message: ChatMessage; streaming: boolean; speaking: boolean; timezone?: string }) {
   const { message, streaming } = props;
   const time = formatTime(message.createdAt, props.timezone);
   const blocks = useMemo(() => blocksOf(message.parts), [message.parts]);
@@ -213,6 +223,7 @@ const Message = memo(function Message(props: { message: ChatMessage; streaming: 
       </article>
     );
   }
+  const speakingThis = props.speaking;
   const last = message.parts[message.parts.length - 1];
   const thinking = streaming && (!last || (last.type === 'tool' && last.status !== 'running'));
   return (
@@ -227,6 +238,17 @@ const Message = memo(function Message(props: { message: ChatMessage; streaming: 
         ) : (
           <>Vector · {time}</>
         )}
+        {speakingThis ? (
+          <button type="button" className="msg-speaking" onClick={() => silence()} aria-label="Stop reading this reply aloud">
+            <span className="spk-bars" aria-hidden="true">
+              <i />
+              <i />
+              <i />
+              <i />
+            </span>
+            <span aria-hidden="true">Speaking</span>
+          </button>
+        ) : null}
       </span>
       {blocks.map((block) =>
         block.kind === 'trace' ? <TraceStack key={block.id} tools={block.tools} /> : <AssistantPart key={block.part.id} part={block.part} />,
@@ -247,6 +269,7 @@ export const DEMO_NOTE = 'Demo mode · scripted replies · add a model key on th
 
 function EmptyThread(props: { title?: string; body?: string; disabled: boolean; onPick: (text: string) => void }) {
   const mock = useStore((s) => Boolean(s.llm?.mock));
+  const canTalk = useVoiceOut((v) => v.canTalk);
   const canSpeak = useMemo(() => speechMode() !== null, []);
   const custom = props.title !== undefined;
   return (
@@ -276,8 +299,8 @@ function EmptyThread(props: { title?: string; body?: string; disabled: boolean; 
           <p className="label">Try</p>
           {canSpeak ? (
             <p className="label thread-empty-voice">
-              <Icon name="mic" size={14} />
-              or tap the mic and say it
+              <Icon name={canTalk ? 'wave' : 'mic'} size={14} />
+              {canTalk ? 'or tap Talk and just say it' : 'or tap the mic and say it'}
             </p>
           ) : null}
         </div>
@@ -324,6 +347,8 @@ export function ThreadView(props: { threadId: Id; strip?: ReactNode; emptyTitle?
   const running = useStore((s) => Boolean(s.running[threadId]));
   const streaming = useStore((s) => s.streaming);
   const timezone = useStore((s) => s.user?.settings.timezone);
+  const speakingId = useVoiceOut((v) => v.speaking?.messageId ?? null);
+  const talking = useVoiceOut((v) => v.talk?.threadId === threadId);
   const scroller = useRef<HTMLDivElement>(null);
   const content = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
@@ -435,7 +460,7 @@ export function ThreadView(props: { threadId: Id; strip?: ReactNode; emptyTitle?
             return (
               <div key={message.id} className="msg-row">
                 {divider ? <p className="label day-divider">{divider}</p> : null}
-                <Message message={message} streaming={Boolean(streaming[message.id])} timezone={timezone} />
+                <Message message={message} streaming={Boolean(streaming[message.id])} speaking={speakingId === message.id} timezone={timezone} />
               </div>
             );
           })}
@@ -466,7 +491,11 @@ export function ThreadView(props: { threadId: Id; strip?: ReactNode; emptyTitle?
 
       <div className="floor">
         <ConsentBar />
-        <Composer onSend={send} running={running} onStop={() => void cancelRun(threadId)} />
+        {talking ? (
+          <TalkSurface threadId={threadId} />
+        ) : (
+          <Composer onSend={send} running={running} onStop={() => void cancelRun(threadId)} onTalk={() => startTalk(threadId)} />
+        )}
       </div>
     </div>
   );

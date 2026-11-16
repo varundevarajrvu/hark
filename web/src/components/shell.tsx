@@ -4,6 +4,7 @@ import { navigateFromOverlay, type Route } from '../router.ts';
 import { pendingApprovals, setState, toast, useStore } from '../store.ts';
 import { ApprovalCard, ConsentBar } from './cards.tsx';
 import { DEMO_NOTE } from './thread.tsx';
+import { setSpeakReplies, silence, useVoiceOut } from '../lib/voiceOut.ts';
 import { Dialog, Icon, Mark, Toasts, type IconName } from './ui.tsx';
 
 interface NavItem {
@@ -108,6 +109,34 @@ function MoreSheet({ route, onClose }: { route: Route; onClose: () => void }) {
   );
 }
 
+/** Read replies aloud: off by default, remembered on this device. Shows when Vector is speaking. */
+function SpeakToggle() {
+  const canSpeak = useVoiceOut((v) => v.canSpeak);
+  const enabled = useVoiceOut((v) => v.enabled);
+  const speaking = useVoiceOut((v) => Boolean(v.speaking));
+  if (!canSpeak) return null;
+  return (
+    <button
+      type="button"
+      className={`speak-toggle${enabled ? ' is-on' : ''}${speaking ? ' is-speaking' : ''}`}
+      aria-pressed={enabled}
+      aria-label={speaking ? 'Read replies aloud (speaking now; tap to stop and turn off)' : 'Read replies aloud'}
+      onClick={() => (speaking && !enabled ? silence() : setSpeakReplies(!enabled))}
+    >
+      {speaking ? (
+        <span className="spk-bars" aria-hidden="true">
+          <i />
+          <i />
+          <i />
+          <i />
+        </span>
+      ) : (
+        <Icon name={enabled ? 'speaker' : 'speakerOff'} size={20} />
+      )}
+    </button>
+  );
+}
+
 /** Model and connection state as one small mono chip. Tap for the full sentence. */
 function StatusChip() {
   const llm = useStore((s) => s.llm);
@@ -176,6 +205,7 @@ export function Shell({ route, children }: { route: Route; children: ReactNode }
         </a>
         <h1 className="bar-title">{title}</h1>
         <StatusChip />
+        {route.name === 'home' || route.name === 'chat' || route.name === 'project' || route.name === 'thread' ? <SpeakToggle /> : null}
         <button
           type="button"
           className={`consent-pill${pending.length ? ' has-pending' : ''}`}
