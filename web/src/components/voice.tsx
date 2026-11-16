@@ -20,7 +20,7 @@ export interface Voice {
  * user to read and send: a mis-heard instruction to an agent that acts is worse than one extra tap.
  */
 export function useVoice(opts: { value: string; setValue: (next: string) => void; focus?: () => void }): Voice {
-  const [mode] = useState(() => speechMode());
+  const mode = speechMode(); // cheap; re-read each render in case the app's bridge arrives after first paint
   const [state, setVoiceState] = useState<VoiceState>('idle');
   const [hearing, setHearing] = useState(false);
   const session = useRef<SpeechSession | null>(null);

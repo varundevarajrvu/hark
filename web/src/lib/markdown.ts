@@ -1,5 +1,6 @@
 import DOMPurify from 'dompurify';
 import { marked } from 'marked';
+import { shortUrl } from './url.ts';
 
 /**
  * Assistant text is untrusted: it can quote web pages and e-mails. It is parsed as Markdown and the
@@ -10,6 +11,12 @@ const purify = DOMPurify(window);
 
 purify.addHook('afterSanitizeAttributes', (node) => {
   if (node.tagName === 'A') {
+    const href = node.getAttribute('href');
+    // A bare link the model pasted (text = URL) reads as host + a short path; the href and the title keep it whole.
+    if (href && /^https?:/i.test(href) && node.textContent === href && href.length > 48) {
+      node.textContent = shortUrl(href);
+      node.setAttribute('title', href);
+    }
     if (node.hasAttribute('href')) {
       node.setAttribute('target', '_blank');
       node.setAttribute('rel', 'noopener noreferrer');

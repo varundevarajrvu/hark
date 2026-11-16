@@ -103,16 +103,29 @@ function toolResults(message: LlmMessage | undefined): Array<{ text: string; isE
 
 const URL_RE = /https?:\/\/[^\s<>"')]+/i;
 
+/** The text and status inside a `<handoff_report>` wrapper (see handoff `wrapReport`), without the boilerplate around it. */
+function handoffReport(text: string): { status: string; text: string } | null {
+  const m = /<handoff_report\b([^>]*)>([\s\S]*?)<\/handoff_report>/.exec(text);
+  if (!m) return null;
+  const status = /\bstatus="([^"]*)"/.exec(m[1]!)?.[1] ?? 'done';
+  return { status, text: m[2]!.trim().slice(0, 2000) || 'The browser agent did not say anything.' };
+}
+
 // ───────────────────────── orchestrator script ─────────────────────────
 
 function orchestratorScript(messages: LlmMessage[]): LlmBlock[] {
   const last = messages[messages.length - 1];
   const results = toolResults(last);
   if (results.length > 0) {
+    // A browser-agent report: say only the report's own text, never the untrusted-content wrapper.
+    const report = results.map((r) => handoffReport(r.text)).find(Boolean);
+    if (report) {
+      if (report.status === 'done') return [textBlock(`The browser agent finished. Its report:\n\n${report.text}`)];
+      if (report.status === 'cancelled') return [textBlock(report.text)];
+      return [textBlock(`The browser agent could not finish:\n\n${report.text}`)];
+    }
     const failed = results.filter((r) => r.isError);
     if (failed.length > 0) return [textBlock(`That did not work: ${failed[0]!.text.slice(0, 300)}`)];
-    const report = /<handoff_report[^>]*>([\s\S]*?)<\/handoff_report>/.exec(results[0]!.text);
-    if (report) return [textBlock(`The browser agent finished. Its report:\n\n${report[1]!.trim()}`)];
     return [textBlock('Done. (Offline demo model: the action above really ran; the wording is scripted.)')];
   }
 
@@ -168,8 +181,15 @@ function orchestratorScript(messages: LlmMessage[]): LlmBlock[] {
       }),
     ];
   }
-  if (url || /\b(browse|go to|open)\b/.test(lower)) {
-    return [textBlock('Handing this to the browser agent.'), toolUseBlock('handoff', url ? { goal: text, start_url: url } : { goal: text })];
+  if (url) return [textBlock('Handing this to the browser agent.'), toolUseBlock('handoff', { goal: text, start_url: url })];
+  if (/\b(browse|go to|open)\b/.test(lower)) {
+    // The scripted browser agent can only open a URL it is given, so do not start a run that cannot succeed.
+    return [
+      textBlock(
+        'In demo mode I can only send the browser agent to an exact web address, such as https://example.com. Include one and I will open it. ' +
+          'The real agent (with a model API key set on the server) works out where to go by itself.',
+      ),
+    ];
   }
   return [
     textBlock(

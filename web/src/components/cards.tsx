@@ -3,6 +3,7 @@ import type { Approval, ApprovalKind, HandoffStatus, Id, MessagePart } from '../
 import { cancelHandoff, decideApproval } from '../actions.ts';
 import { errorText, screenshotUrl } from '../api.ts';
 import { formatTime } from '../lib/format.ts';
+import { fitPath, urlParts } from '../lib/url.ts';
 import { threadHref } from '../router.ts';
 import { pendingApprovals, setState, useStore } from '../store.ts';
 import { Dialog, ErrorNote, Icon, Spinner } from './ui.tsx';
@@ -148,30 +149,15 @@ const HANDOFF_TAG: Record<HandoffStatus, string> = {
   cancelled: 'Cancelled',
 };
 
-function hostOf(url: string): { host: string; path: string; query: string; secure: boolean } {
-  try {
-    const u = new URL(url);
-    return { host: u.host, path: u.pathname === '/' ? '' : u.pathname, query: u.search, secure: u.protocol === 'https:' };
-  } catch {
-    return { host: url, path: '', query: '', secure: false };
-  }
-}
+const hostOf = urlParts;
 
-/** Keep the start and the end of a string, drop the middle: "/v3/signin/ide…/identifier". */
-export function middleEllipsis(text: string, max: number): string {
-  if (text.length <= max) return text;
-  if (max <= 2) return '…';
-  const keep = max - 1;
-  const head = Math.ceil(keep * 0.55);
-  return `${text.slice(0, head)}…${text.slice(text.length - (keep - head))}`;
-}
-
-/** The path that fits after the host in `budget` characters: whole, or query folded, or cut in the middle. */
-export function fitPath(path: string, query: string, budget: number): string {
-  if (path.length + query.length <= budget) return path + query;
-  const tail = query ? '?…' : '';
-  if (path.length + tail.length <= budget) return path + tail;
-  return middleEllipsis(path, Math.max(6, budget - tail.length)) + tail;
+let measureCtx: CanvasRenderingContext2D | null | undefined;
+/** Width of one character of the URL bar's mono face, measured once per font. */
+function charWidth(font: string, fallback: number): number {
+  if (measureCtx === undefined) measureCtx = document.createElement('canvas').getContext('2d');
+  if (!measureCtx) return fallback;
+  measureCtx.font = font;
+  return measureCtx.measureText('abcdefghij0123456789').width / 20 || fallback;
 }
 
 /** One line in the browser chrome: the host in full, the path cut to fit. The whole URL is in the lightbox and the log. */
@@ -184,9 +170,10 @@ function UrlLine({ url }: { url: string }) {
     if (!el) return;
     const measure = () => {
       const style = getComputedStyle(el);
-      const advance = parseFloat(style.fontSize) * 0.6 || 7.2; // Geist Mono advance
+      const advance = charWidth(`${style.fontWeight} ${style.fontSize} ${style.fontFamily}`, parseFloat(style.fontSize) * 0.6 || 7.2);
+      // room for text: the box, less its padding, the lock icon and the gaps around it
       const room = el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - (at.secure ? 17 : 0);
-      setChars(Math.max(8, Math.floor(room / advance)));
+      setChars(Math.max(8, Math.floor(room / advance) - 1)); // one spare: sub-pixel rounding must never trigger the CSS ellipsis
     };
     measure();
     const observer = new ResizeObserver(measure);
@@ -298,14 +285,16 @@ export function HandoffPart({ runId }: { runId: Id }) {
             {!live && run.url ? (
               <li className="fr-step fr-step-url">
                 <span className="fr-act">Last page</span>
-                <span className="fr-detail">{run.url}</span>
+                <span className="fr-detail fr-detail-full">{run.url}</span>
               </li>
             ) : null}
             {run.steps.map((step, i) => (
               <li key={step.index} className={`fr-step${live && i === stepCount - 1 ? ' is-newest' : ''}`}>
                 <time dateTime={step.at}>{formatTime(step.at, timezone)}</time>
                 <span className="fr-act">{step.action.replace(/_/g, ' ')}</span>
-                <span className="fr-detail">{step.detail}</span>
+                <span className="fr-detail" title={step.detail.length > 120 ? step.detail : undefined}>
+                  {step.detail}
+                </span>
               </li>
             ))}
           </ol>

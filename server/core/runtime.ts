@@ -51,4 +51,6 @@ export interface HandoffRuntime {
   screenshot(userId: Id, runId: Id): Buffer | null;
   cancel(userId: Id, runId: Id): void;
   cancelAll(userId: Id): void;
+  /** Remove the user's saved browser profile (signed-in sessions). Called on account deletion. */
+  deleteProfile?(userId: Id): Promise<void>;
 }

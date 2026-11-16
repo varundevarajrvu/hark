@@ -20,7 +20,8 @@ import type { ElementInfo, SnapshotResult } from './page.ts';
 import { ensureProfileDir, lockProfile, profileMode, waitForProfile } from './profile.ts';
 import type { LockHolder } from './profile.ts';
 
-export { deleteBrowserProfile } from './profile.ts';
+import { deleteBrowserProfile } from './profile.ts';
+export { deleteBrowserProfile };
 export { browserChoice } from './browser.ts';
 
 /**
@@ -191,6 +192,9 @@ export function createHandoffRuntime(deps: {
       const entry = live.get(runId);
       if (entry && entry.userId === userId) entry.abort.abort();
     },
+    deleteProfile(userId) {
+      return deleteBrowserProfile(userId);
+    },
     cancelAll(userId) {
       for (const entry of live.values()) if (entry.userId === userId) entry.abort.abort();
     },
@@ -206,6 +210,7 @@ class Session {
   private readonly unattended: boolean;
   private browser: Browser | null = null;
   private context: BrowserContext | null = null;
+  private closing: Promise<void> | null = null;
   private current: Page | null = null;
   private steps: HandoffStep[] = [];
   private shotVersion = 0;
@@ -256,12 +261,19 @@ class Session {
     }
   }
 
-  /** Close the browser (fresh mode) or the persistent context, which also ends its browser. Never throws or hangs. */
+  /**
+   * Close the browser (fresh mode) or the persistent context, which also ends its browser. Started
+   * once (a cancel starts it early) and awaited by everyone, so the profile is released only after
+   * the browser has exited. Never throws; gives up waiting after CLOSE_TIMEOUT_MS.
+   */
   private closeBrowser(): Promise<void> {
-    const closing = this.browser ? this.browser.close() : this.context ? this.context.close() : Promise.resolve();
-    let timer: NodeJS.Timeout | undefined;
-    const timeout = new Promise<void>((resolve) => (timer = setTimeout(resolve, CLOSE_TIMEOUT_MS)));
-    return Promise.race([closing.catch(() => {}), timeout]).finally(() => clearTimeout(timer));
+    if (!this.closing && (this.browser || this.context)) {
+      const closing = this.browser ? this.browser.close() : this.context!.close();
+      let timer: NodeJS.Timeout | undefined;
+      const timeout = new Promise<void>((resolve) => (timer = setTimeout(resolve, CLOSE_TIMEOUT_MS)));
+      this.closing = Promise.race([closing.catch(() => {}), timeout]).finally(() => clearTimeout(timer));
+    }
+    return this.closing ?? Promise.resolve();
   }
 
   private async driveBrowser(persistent: boolean): Promise<Outcome> {

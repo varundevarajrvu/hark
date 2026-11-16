@@ -210,17 +210,17 @@ function SectionHead({ id, title, count, action }: { id: string; title: string; 
   );
 }
 
-/** "Next 08:00", "Next tomorrow 08:00", "Next Fri 20 Nov". */
+/** "08:00", "tomorrow 08:00", "Fri 20 Nov". */
 function nextRunWords(iso: string, timezone?: string): string {
   const today = dayKey(new Date().toISOString(), timezone);
   const tomorrow = dayKey(new Date(Date.now() + 86_400_000).toISOString(), timezone);
   const day = dayKey(iso, timezone);
-  if (day === today) return `Next ${formatTime(iso, timezone)}`;
-  if (day === tomorrow) return `Next tomorrow ${formatTime(iso, timezone)}`;
+  if (day === today) return formatTime(iso, timezone);
+  if (day === tomorrow) return `tmrw ${formatTime(iso, timezone)}`;
   try {
-    return `Next ${new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: safeZone(timezone) }).format(new Date(iso))}`;
+    return `${new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: safeZone(timezone) }).format(new Date(iso))}`;
   } catch {
-    return 'Next run scheduled';
+    return 'soon';
   }
 }
 
@@ -295,20 +295,20 @@ export function HomePage() {
               {flights ? (
                 <a className="stat is-live" href="#/chat">
                   <span className="pulse" aria-hidden="true" />
-                  {flights} run{flights === 1 ? '' : 's'} in flight
+                  <b>{flights}</b> in flight
                 </a>
               ) : null}
               <a className="stat" href="#/tasks">
-                {scheduled.length} task{scheduled.length === 1 ? '' : 's'} scheduled
+                <b>{scheduled.length}</b> scheduled
               </a>
               {next?.nextRunAt ? (
-                <a className="stat" href="#/tasks" title={next.title}>
-                  {nextRunWords(next.nextRunAt, timezone)}
+                <a className="stat" href="#/tasks" aria-label={`Next run: ${next.title}, ${nextRunWords(next.nextRunAt, timezone)}`}>
+                  next <b>{nextRunWords(next.nextRunAt, timezone)}</b>
                 </a>
               ) : null}
               {memories ? (
                 <a className="stat" href="#/memory">
-                  {memories.length} memor{memories.length === 1 ? 'y' : 'ies'}
+                  <b>{memories.length}</b> memor{memories.length === 1 ? 'y' : 'ies'}
                 </a>
               ) : null}
             </nav>

@@ -51,13 +51,28 @@ network guards are enforced in code and are the same on every provider.
 Then open http://127.0.0.1:8787. To reach it from a phone on the same Wi-Fi, start it with
 `HOST=0.0.0.0` and open `http://<laptop-ip>:8787`.
 
-The browser agent needs Chromium. Install one that matches the pinned Playwright version:
+The browser agent needs a browser. It uses the Chrome or Edge already installed on the machine,
+so most people need to do nothing. To use Playwright's own Chromium instead:
 
 ```bash
 npx playwright-core install chromium
 ```
 
-or point `VECTOR_CHROMIUM_PATH` at an existing binary. All settings are listed in `.env.example`.
+or point `VECTOR_CHROMIUM_PATH` at a binary. All settings are listed in `.env.example`.
+
+### Letting Vector act on sites you are signed in to
+
+Each account has its own saved browser profile, so a site you sign in to once stays signed in for
+later runs. You do the signing in yourself, in a visible window, so the model never sees your
+password, 2FA code or captcha. Stop nothing; on the computer running Vector:
+
+```bash
+npm run browser -- you@example.com https://mail.google.com
+```
+
+Sign in, then close the window. Some sites (Google in particular) may refuse to sign in inside an
+automated browser; saving the login in the Vault is the fallback. Set
+`VECTOR_BROWSER_PROFILE=fresh` to go back to a throwaway browser for every run.
 
 ## How it is put together
 
@@ -82,8 +97,11 @@ or point `VECTOR_CHROMIUM_PATH` at an existing binary. All settings are listed i
   account or using a vault item waits for your approval. The browser agent also refuses, in code,
   to click pay / order / send / submit-style buttons without a recent approval.
 - **Logins only go where they belong.** A saved login fills only on its own site.
-- **Browser isolation.** Each run gets a fresh browser that is discarded afterwards, and it
-  cannot reach private or local network addresses.
+- **Browser profile.** Each account has its own saved browser profile under `data/profiles/`, so
+  sign-ins persist between runs. It holds live sessions: protect it like `master.key`, and keep it
+  out of shared backups. It is deleted with the account. The browser agent cannot reach private
+  or local network addresses, denies every permission prompt, and blocks downloads. With
+  `VECTOR_BROWSER_PROFILE=fresh` every run gets a throwaway browser instead.
 - **Panels** are model-written HTML, shown in a sandboxed frame with no network and no access to
   your session.
 - **Untrusted content.** Web pages and browser-agent reports are treated as data, not instructions.

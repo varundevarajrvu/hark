@@ -1,8 +1,17 @@
-import { existsSync } from 'node:fs';
+import { spawn, spawnSync } from 'node:child_process';
+import type { ChildProcess } from 'node:child_process';
+import { existsSync, mkdtempSync, readdirSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import http from 'node:http';
 import type { AddressInfo } from 'node:net';
+import os from 'node:os';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { DatabaseSync } from 'node:sqlite';
+import { chromium } from 'playwright-core';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 process.env.VECTOR_MASTER_KEY = Buffer.alloc(32, 7).toString('base64');
+// Every test runs with a throwaway browser unless it is about persistence (the env is read per run).
+process.env.VECTOR_BROWSER_PROFILE = 'fresh';
 import { resolveApproval } from '../server/core/approvals.ts';
 import { subscribe } from '../server/core/bus.ts';
 import { config } from '../server/core/config.ts';
@@ -10,7 +19,9 @@ import { approvalRows, handoffRuns, listAudit, resetDbForTests, users } from '..
 import { vault } from '../server/core/vault.ts';
 import { createOfflineClient, toolUseBlock } from '../server/agent/index.ts';
 import type { LlmBlock, LlmClient, LlmRequest } from '../server/agent/index.ts';
-import { COMMIT_PATTERN, createHandoffRuntime } from '../server/handoff/index.ts';
+import { COMMIT_PATTERN, createHandoffRuntime, deleteBrowserProfile } from '../server/handoff/index.ts';
+import { BrowserUnavailableError, browserChoice, launchBrowser, resetBrowserChoice } from '../server/handoff/browser.ts';
+import { profileDir, profilesRoot } from '../server/handoff/profile.ts';
 import { isBlockedAddress, resolvePublicHost, urlProblem } from '../server/handoff/netguard.ts';
 import type { ServerEvent } from '../shared/types.ts';
 
@@ -48,7 +59,7 @@ describe('network and consent rules (no browser)', () => {
 
 // ───────────────────────── real browser ─────────────────────────
 
-type Step = LlmBlock[] | ((req: LlmRequest) => LlmBlock[]);
+type Step = LlmBlock[] | ((req: LlmRequest) => LlmBlock[] | Promise<LlmBlock[]>);
 
 function scripted(steps: Step[]) {
   const seen: any[] = [];
@@ -57,7 +68,7 @@ function scripted(steps: Step[]) {
       seen.push(JSON.parse(JSON.stringify({ system: req.system, messages: req.messages })));
       const step = steps[seen.length - 1];
       if (!step) throw new Error('script exhausted');
-      const content = typeof step === 'function' ? step(req) : step;
+      const content = typeof step === 'function' ? await step(req) : step;
       return { content, stop_reason: 'tool_use', usage: { input_tokens: 1, output_tokens: 1 }, model: 'test-model' };
     },
   };
@@ -82,6 +93,8 @@ describe.skipIf(!existsSync(CHROMIUM))('handoff with a real browser', () => {
   let base: string;
   let port: number;
   let hits: string[];
+  /** Cookie header sent with each GET /whoami. */
+  let cookies: string[];
   let posts: Array<{ path: string; body: URLSearchParams }>;
   let user: string;
   let events: ServerEvent[];
@@ -109,6 +122,16 @@ describe.skipIf(!existsSync(CHROMIUM))('handoff with a real browser', () => {
       if (url.pathname === '/') return html(page('Test Home', '<h1>Welcome to the test site</h1><p>First paragraph of text.</p><a href="/shop">Shop</a>'));
       if (url.pathname === '/login') return html(page('Sign in', '<h1>Sign in</h1><form method="post" action="/session"><label>Email <input name="email" type="text"></label><label>Password <input name="pw" type="password"></label><button>Log in</button></form><form action="/find"><input name="q" type="search" placeholder="Search"></form>'));
       if (url.pathname === '/shop') return html(page('Checkout', '<h1>Your basket</h1><p>1 × Teapot — £24.00</p><form method="post" action="/order"><input type="hidden" name="sku" value="teapot"><button type="submit">Place order</button></form>'));
+      if (url.pathname === '/set-cookie') {
+        return void res.writeHead(200, { 'content-type': 'text/html', 'set-cookie': `sid=${url.searchParams.get('v')}; Max-Age=3600; Path=/` }).end(page('Cookie set', '<p>cookie set</p>'));
+      }
+      if (url.pathname === '/whoami') {
+        cookies.push(req.headers.cookie ?? '');
+        return html(page('Who am I', `<p>cookie: ${req.headers.cookie ?? 'none'}</p>`));
+      }
+      if (url.pathname === '/perm') {
+        return html(page('Permissions', '<p id="p">checking</p><script>navigator.permissions.query({ name: "geolocation" }).then((r) => { document.getElementById("p").textContent = "geolocation: " + r.state; });</script>'));
+      }
       if (url.pathname === '/redir') return void res.writeHead(302, { location: `http://localhost:${port}/secret` }).end();
       html(page('Other', `<p>${url.pathname}</p>`));
     });
@@ -123,6 +146,7 @@ describe.skipIf(!existsSync(CHROMIUM))('handoff with a real browser', () => {
     resetDbForTests();
     user = users.create({ email: 'a@x.dev', name: 'Ada', passwordHash: 'h' }).id;
     hits = [];
+    cookies = [];
     posts = [];
     events = [];
     decisions = [];
@@ -364,4 +388,299 @@ describe.skipIf(!existsSync(CHROMIUM))('handoff with a real browser', () => {
       config.chromiumPath = CHROMIUM;
     }
   }, 60_000);
+
+  // ───────────────────────── persistent profile ─────────────────────────
+
+  describe('persistent browser profile', () => {
+    let dataDir: string;
+    let savedDataDir: string;
+    beforeEach(() => {
+      savedDataDir = config.dataDir;
+      dataDir = mkdtempSync(path.join(os.tmpdir(), 'vector-profiles-'));
+      config.dataDir = dataDir;
+      delete process.env.VECTOR_BROWSER_PROFILE; // the default: persistent
+    });
+    afterEach(() => {
+      process.env.VECTOR_BROWSER_PROFILE = 'fresh';
+      config.dataDir = savedDataDir;
+      rmSync(dataDir, { recursive: true, force: true, maxRetries: 5, retryDelay: 200 });
+    });
+
+    const runAs = (userId: string, client: LlmClient, extra: Partial<Parameters<ReturnType<typeof createHandoffRuntime>['run']>[0]> = {}, profileWaitMs?: number) =>
+      createHandoffRuntime({ llm: client, profileWaitMs }).run({ userId, threadId: null, goal: 'test goal', signal: new AbortController().signal, ...extra });
+    const visit = (p: string) => scripted([call('navigate', { url: `${base}${p}` }), finish()]).client;
+    const released = (userId: string) =>
+      !existsSync(path.join(profilesRoot(), `${userId}.lock`)) && !readdirSync(profileDir(userId)).includes('SingletonLock');
+
+    it('keeps cookies between runs of the same user, and only for that user; permissions stay denied', async () => {
+      expect((await runAs(user, visit('/set-cookie?v=ada1'))).status).toBe('done');
+      expect(statSync(profilesRoot()).mode & 0o777).toBe(0o700);
+      expect(statSync(profileDir(user)).mode & 0o777).toBe(0o700);
+      expect(released(user)).toBe(true);
+
+      const s = scripted([call('navigate', { url: `${base}/whoami` }), call('navigate', { url: `${base}/perm` }), call('snapshot', {}), finish()]);
+      expect((await runAs(user, s.client)).status).toBe('done');
+      expect(cookies).toEqual(['sid=ada1']);
+      expect(s.resultsAfter(2)[0]!.content).toContain('geolocation: denied');
+
+      const other = users.create({ email: 'b@x.dev', name: 'Bo', passwordHash: 'h' }).id;
+      expect((await runAs(other, visit('/whoami'))).status).toBe('done');
+      expect(cookies).toEqual(['sid=ada1', '']);
+      expect(readdirSync(profilesRoot()).filter((f) => !f.endsWith('.lock')).sort()).toEqual([other, user].sort());
+    }, 60_000);
+
+    it('keeps nothing in fresh mode', async () => {
+      process.env.VECTOR_BROWSER_PROFILE = 'fresh';
+      expect((await runAs(user, visit('/set-cookie?v=gone'))).status).toBe('done');
+      expect((await runAs(user, visit('/whoami'))).status).toBe('done');
+      expect(cookies).toEqual(['']);
+      expect(existsSync(profilesRoot())).toBe(false);
+    }, 60_000);
+
+    it('runs one browser per user at a time: the next run waits its turn, can be cancelled, or gives up with a clear message', async () => {
+      let release!: () => void;
+      const gate = new Promise<void>((r) => (release = r));
+      let holding!: () => void;
+      const held = new Promise<void>((r) => (holding = r));
+      const order: string[] = [];
+      const first = scripted([
+        call('navigate', { url: `${base}/set-cookie?v=q1` }),
+        async () => {
+          holding();
+          await gate;
+          order.push('first finished');
+          return finish();
+        },
+      ]);
+      const p1 = runAs(user, first.client);
+      await held;
+
+      const impatient = await runAs(user, scripted([finish()]).client, {}, 300);
+      expect(impatient.status).toBe('failed');
+      expect(impatient.result).toContain('only one can use the browser at a time');
+
+      const ac = new AbortController();
+      setTimeout(() => ac.abort(), 200);
+      expect((await runAs(user, scripted([finish()]).client, { signal: ac.signal })).status).toBe('cancelled');
+
+      // Another user is not held up.
+      const other = users.create({ email: 'b@x.dev', name: 'Bo', passwordHash: 'h' }).id;
+      expect((await runAs(other, visit('/'))).status).toBe('done');
+
+      const second = scripted([
+        () => {
+          order.push('second started');
+          return call('navigate', { url: `${base}/whoami` });
+        },
+        finish(),
+      ]);
+      const p2 = runAs(user, second.client);
+      await sleep(500);
+      expect(order).toEqual([]);
+      release();
+      const [r1, r2] = await Promise.all([p1, p2]);
+      expect([r1.status, r2.status]).toEqual(['done', 'done']);
+      expect(order).toEqual(['first finished', 'second started']);
+      expect(cookies).toEqual(['sid=q1']);
+      expect(handoffRuns.get(user, r2.runId)!.steps[0]).toMatchObject({ action: 'wait' });
+      expect(released(user)).toBe(true);
+    }, 90_000);
+
+    it('fails fast while another process (the sign-in window) has the profile, and takes over a stale lock', async () => {
+      const holder = spawn(process.execPath, ['-e', 'setTimeout(() => {}, 60000)'], { stdio: 'ignore' });
+      try {
+        await sleep(100);
+        expect((await runAs(user, visit('/'))).status).toBe('done'); // creates the profile
+        writeFileSync(path.join(profilesRoot(), `${user}.lock`), JSON.stringify({ pid: holder.pid, role: 'signin' }));
+        const res = await runAs(user, visit('/'));
+        expect(res.status).toBe('failed');
+        expect(res.result).toContain('sign-in window');
+        expect(hits).toEqual(['GET /']);
+      } finally {
+        await exited(holder, () => holder.kill());
+      }
+      expect((await runAs(user, visit('/'))).status).toBe('done'); // the holder is gone: its lock is stale
+      expect(released(user)).toBe(true);
+    }, 60_000);
+
+    it('closes the browser and releases the profile after a cancel and after an error', async () => {
+      let runId = '';
+      const rt = createHandoffRuntime({
+        llm: scripted([
+          call('navigate', { url: `${base}/` }),
+          () => {
+            setTimeout(() => rt.cancel(user, runId), 100);
+            return call('wait', { seconds: 10 });
+          },
+        ]).client,
+      });
+      const cancelled = await rt.run({ userId: user, threadId: null, goal: 'g', signal: new AbortController().signal, onStart: (id) => (runId = id) });
+      expect(cancelled.status).toBe('cancelled');
+      expect(released(user)).toBe(true);
+
+      const failing = scripted([
+        call('navigate', { url: `${base}/` }),
+        () => {
+          throw new Error('model API exploded');
+        },
+      ]);
+      expect((await runAs(user, failing.client)).status).toBe('failed');
+      expect(released(user)).toBe(true);
+      // The profile really is free: a new browser can open it.
+      expect((await runAs(user, visit('/'))).status).toBe('done');
+    }, 60_000);
+
+    it('deletes a user’s profile, and refuses anything that is not one profile directory', async () => {
+      expect((await runAs(user, visit('/set-cookie?v=del'))).status).toBe('done');
+      expect(existsSync(profileDir(user))).toBe(true);
+      await deleteBrowserProfile(user);
+      expect(existsSync(profileDir(user))).toBe(false);
+      expect(existsSync(dataDir)).toBe(true);
+      for (const bad of ['', '.', '..', '../x', 'a/b', 'a\\b', '/etc']) await expect(deleteBrowserProfile(bad), bad).rejects.toThrow();
+      expect((await runAs(user, visit('/whoami'))).status).toBe('done');
+      expect(cookies).toEqual(['']);
+    }, 60_000);
+
+    // ── npm run browser ──
+
+    describe('npm run browser (signin.ts)', () => {
+      const SIGNIN = fileURLToPath(new URL('../server/handoff/signin.ts', import.meta.url));
+      const ROOT = fileURLToPath(new URL('..', import.meta.url));
+      const hasXvfb = spawnSync('sh', ['-c', 'command -v Xvfb']).status === 0;
+
+      beforeEach(() => {
+        // The CLI reads the server's database file; only the users table matters to it.
+        const file = new DatabaseSync(path.join(dataDir, 'vector.db'));
+        file.exec('CREATE TABLE users (id TEXT PRIMARY KEY, email TEXT NOT NULL UNIQUE COLLATE NOCASE)');
+        file.prepare('INSERT INTO users (id, email) VALUES (?, ?), (?, ?)').run(user, 'a@x.dev', 'usr_someone_else', 'secret.other@x.dev');
+        file.close();
+      });
+
+      const cli = (args: string[], env: Record<string, string> = {}) => {
+        const child = spawn(process.execPath, ['--import', 'tsx', SIGNIN, ...args], {
+          cwd: ROOT,
+          env: { ...process.env, VECTOR_DATA_DIR: dataDir, VECTOR_CHROMIUM_PATH: CHROMIUM, ...env },
+        });
+        const io = { out: '' };
+        child.stdout!.on('data', (d) => (io.out += d));
+        child.stderr!.on('data', (d) => (io.out += d));
+        return { child, io };
+      };
+      const runCli = async (args: string[]) => {
+        const { child, io } = cli(args);
+        const code = await exited(child);
+        return { code, out: io.out };
+      };
+
+      it('prints usage, and never lists the accounts', async () => {
+        const none = await runCli([]);
+        expect(none.code).toBe(2);
+        expect(none.out).toContain('Usage: npm run browser -- <your Vector account email> [url]');
+        const unknown = await runCli(['nobody@x.dev']);
+        expect(unknown.code).toBe(1);
+        expect(unknown.out).toContain('No account with that email');
+        for (const out of [none.out, unknown.out]) for (const email of ['a@x.dev', 'secret.other']) expect(out).not.toContain(email);
+      }, 60_000);
+
+      it('refuses while the server has the profile open, and says so', async () => {
+        let release!: () => void;
+        const gate = new Promise<void>((r) => (release = r));
+        let holding!: () => void;
+        const held = new Promise<void>((r) => (holding = r));
+        const busy = runAs(user, scripted([call('navigate', { url: `${base}/` }), async () => (holding(), await gate, finish())]).client);
+        await held;
+        const res = await runCli(['A@X.dev']); // the lookup is case-insensitive, like sign-in
+        expect(res.code).toBe(1);
+        expect(res.out).toContain('Vector is using this browser right now');
+        release();
+        expect((await busy).status).toBe('done');
+      }, 60_000);
+
+      it.skipIf(!hasXvfb)('opens a visible window on the profile, and what the user signs in to is there for the next run', async () => {
+        const display = `:${200 + Math.floor(Math.random() * 300)}`;
+        const xvfb = spawn('Xvfb', [display, '-screen', '0', '1280x800x24'], { stdio: 'ignore' });
+        try {
+          await sleep(1000);
+          const { child, io } = cli(['a@x.dev', `${base}/set-cookie?v=by-hand`], { DISPLAY: display });
+          await until(() => io.out.includes('Sign in to the sites you want Vector to use, then close the window.') && hits.includes('GET /set-cookie'), 30_000, () => io.out);
+
+          // While the window is open the agent cannot use the profile, and says why.
+          const blocked = await runAs(user, visit('/'));
+          expect(blocked.status).toBe('failed');
+          expect(blocked.result).toContain('sign-in window');
+
+          // Ctrl+C in the terminal closes the window the same way as closing it by hand.
+          expect(await exited(child, () => child.kill('SIGINT'))).toBe(0);
+          expect(io.out).toContain('Saved.');
+          expect(released(user)).toBe(true);
+        } finally {
+          await exited(xvfb, () => xvfb.kill());
+        }
+        expect((await runAs(user, visit('/whoami'))).status).toBe('done');
+        expect(cookies).toEqual(['sid=by-hand']);
+      }, 90_000);
+    });
+  });
+
+  // ───────────────────────── finding a browser ─────────────────────────
+
+  describe('finding a browser', () => {
+    afterEach(() => {
+      config.chromiumPath = CHROMIUM;
+      delete process.env.VECTOR_BROWSER_CHANNEL;
+      resetBrowserChoice();
+    });
+
+    it('uses VECTOR_CHROMIUM_PATH when it is set, and remembers the choice', async () => {
+      resetBrowserChoice();
+      expect(browserChoice()).toBeNull();
+      await (await launchBrowser({ headless: true })).close();
+      expect(browserChoice()).toContain('VECTOR_CHROMIUM_PATH');
+    }, 60_000);
+
+    it.skipIf(!existsSync(chromium.executablePath()))('finds Playwright’s own Chromium with nothing configured', async () => {
+      config.chromiumPath = '';
+      resetBrowserChoice();
+      await (await launchBrowser({ headless: true })).close();
+      expect(browserChoice()).toBe('Playwright’s Chromium');
+    }, 60_000);
+
+    it('gives a readable error, not a crash, for a forced channel that is not installed', async () => {
+      config.chromiumPath = '';
+      const channels = ['no-such-browser', ...(existsSync('/opt/microsoft/msedge/msedge') ? [] : ['msedge'])];
+      for (const channel of channels) {
+        process.env.VECTOR_BROWSER_CHANNEL = channel;
+        resetBrowserChoice();
+        const err = await launchBrowser({ headless: true }).then(() => null, (e: unknown) => e);
+        expect(err, channel).toBeInstanceOf(BrowserUnavailableError);
+        const msg = (err as Error).message;
+        for (const hint of [`"${channel}"`, 'VECTOR_BROWSER_CHANNEL', 'install Google Chrome or Microsoft Edge', 'npx playwright-core install chromium', 'set VECTOR_CHROMIUM_PATH']) expect(msg, channel).toContain(hint);
+        expect(browserChoice()).toBeNull();
+      }
+      const res = await go(scripted([finish()]).client).done;
+      expect(res.status).toBe('failed');
+      expect(res.result).toContain('The browser agent is not available on this server');
+      expect(res.result).toContain('npx playwright-core install chromium');
+    }, 60_000);
+  });
 });
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+async function until(cond: () => boolean, timeoutMs: number, explain: () => string = () => ''): Promise<void> {
+  const end = Date.now() + timeoutMs;
+  while (!cond()) {
+    if (Date.now() > end) throw new Error(`timed out waiting: ${explain()}`);
+    await sleep(100);
+  }
+}
+
+/** Exit code of a child process, after optionally signalling it. */
+function exited(child: ChildProcess, kill?: () => void): Promise<number | null> {
+  if (child.exitCode !== null || child.signalCode !== null) return Promise.resolve(child.exitCode);
+  const done = new Promise<number | null>((r) => child.once('exit', (code) => r(code)));
+  kill?.();
+  return done;
+}

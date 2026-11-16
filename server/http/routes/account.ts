@@ -224,6 +224,8 @@ export function accountRoutes(app: FastifyInstance, ctx: AppContext): void {
     // Stop everything that could still write rows for this user, then erase by cascade.
     ctx.agent.cancelAll(userId);
     ctx.handoff.cancelAll(userId);
+    // Signed-in browser sessions are as sensitive as the vault: remove them with the account.
+    await ctx.handoff.deleteProfile?.(userId).catch((err) => req.log.error({ err }, 'could not delete browser profile'));
     expireAllFor(userId);
     sessions.deleteAllFor(userId);
     users.delete(userId);

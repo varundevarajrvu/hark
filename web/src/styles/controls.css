@@ -404,6 +404,30 @@ input[readonly] {
 .prompt-chip .icon {
   display: none;
 }
+/* The same prompts as wrapping chips: the user's words, ready to say. */
+.prompt-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--s-2);
+}
+.prompt-chips .prompt-chip {
+  width: auto;
+  max-width: 100%;
+  align-items: center;
+  gap: 8px;
+  min-height: 44px;
+  padding: 10px 16px 10px 13px;
+  border-color: var(--line-2);
+  border-radius: 22px;
+  background: var(--bg);
+  box-shadow: none;
+  font-family: var(--text);
+  font-size: var(--f-base);
+  line-height: 1.3;
+}
+.prompt-chips .prompt-chip::before {
+  font-family: var(--mono);
+}
 .prompt-grid,
 .prompt-row {
   display: grid;

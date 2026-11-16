@@ -272,19 +272,21 @@ function EmptyThread(props: { title?: string; body?: string; disabled: boolean; 
       </p>
       {mock ? <p className="label demo-note">{DEMO_NOTE}</p> : null}
       <div className="thread-empty-try">
-        <p className="label">Try</p>
+        <div className="thread-empty-try-head">
+          <p className="label">Try</p>
+          {canSpeak ? (
+            <p className="label thread-empty-voice">
+              <Icon name="mic" size={14} />
+              or tap the mic and say it
+            </p>
+          ) : null}
+        </div>
         <div className="prompt-chips">
           {STARTER_PROMPTS.map((prompt) => (
             <PromptChip key={prompt} text={prompt} onPick={props.onPick} disabled={props.disabled} />
           ))}
         </div>
       </div>
-      {canSpeak ? (
-        <p className="label thread-empty-voice">
-          <Icon name="mic" size={14} />
-          Or tap the mic and just say it
-        </p>
-      ) : null}
     </div>
   );
 }
@@ -326,6 +328,7 @@ export function ThreadView(props: { threadId: Id; strip?: ReactNode; emptyTitle?
   const content = useRef<HTMLDivElement>(null);
   const stick = useRef(true);
   const anchor = useRef<{ height: number; top: number; firstId: Id | undefined } | null>(null);
+  const emptyNow = useRef(false);
 
   useEffect(() => {
     setOpenThread(threadId);
@@ -340,7 +343,7 @@ export function ThreadView(props: { threadId: Id; strip?: ReactNode; emptyTitle?
     const inner = content.current;
     if (!el || !inner) return;
     const observer = new ResizeObserver(() => {
-      if (stick.current && !anchor.current) el.scrollTop = el.scrollHeight;
+      if (stick.current && !anchor.current && !emptyNow.current) el.scrollTop = el.scrollHeight;
     });
     observer.observe(inner);
     return () => observer.disconnect();
@@ -355,10 +358,12 @@ export function ThreadView(props: { threadId: Id; strip?: ReactNode; emptyTitle?
       // Older messages were added above: stay on the message the user was reading.
       el.scrollTop = held.top + (el.scrollHeight - held.height);
       anchor.current = null;
+    } else if (emptyNow.current) {
+      el.scrollTop = 0; // an empty thread reads from its headline down
     } else if (stick.current) {
       el.scrollTop = el.scrollHeight;
     }
-  }, [firstId, thread.messages, thread.pending, threadId]);
+  }, [firstId, thread.messages, thread.pending, threadId, thread.loaded]);
 
   const older = () => {
     const el = scroller.current;
@@ -382,6 +387,7 @@ export function ThreadView(props: { threadId: Id; strip?: ReactNode; emptyTitle?
   };
 
   const isEmpty = thread.loaded && thread.messages.length === 0 && thread.pending.length === 0;
+  emptyNow.current = isEmpty;
   const retryText = useMemo(() => {
     for (let i = thread.messages.length - 1; i >= 0; i--) {
       const m = thread.messages[i];

@@ -7,6 +7,8 @@ import type { HandoffRuntime } from '../server/core/runtime.ts';
 import { vault } from '../server/core/vault.ts';
 import { createAgentRuntime, createOfflineClient, textBlock, toolUseBlock } from '../server/agent/index.ts';
 import type { LlmBlock, LlmClient, LlmRequest, LlmResponse } from '../server/agent/index.ts';
+import { SYSTEM_PROMPT } from '../server/agent/prompt.ts';
+import { wrapReport } from '../server/handoff/index.ts';
 import type { ServerEvent } from '../shared/types.ts';
 
 type Step = LlmBlock[] | ((req: LlmRequest) => LlmBlock[] | Promise<LlmBlock[]>);
@@ -258,5 +260,53 @@ describe('orchestrator turn', () => {
     expect(await agent.startTurn({ userId: user, threadId: thread, text: 'what is the capital of France?' }).done).toBe('ok');
     expect(JSON.stringify(visible().at(-1)!.parts)).toContain('offline demo model');
     expectValidHistory();
+  });
+
+  it('offline model: asked to browse without a URL, it explains demo mode instead of starting a doomed run', async () => {
+    const runs: string[] = [];
+    const spy: HandoffRuntime = { ...noHandoff, run: async (o) => (runs.push(o.goal), { runId: 'hnd_x', status: 'done', result: wrapReport('done', 'x') }) };
+    const agent = createAgentRuntime({ handoff: spy, llm: createOfflineClient() });
+    expect(await agent.startTurn({ userId: user, threadId: thread, text: 'Open Gmail and send a mail to Bo' }).done).toBe('ok');
+    expect(runs).toEqual([]);
+    const said = JSON.stringify(visible().at(-1)!.parts);
+    expect(said).toContain('exact web address');
+    expect(said).toContain('works out where to go by itself');
+    expectValidHistory();
+  });
+
+  it('offline model: shows only the browser agent’s own report, without the untrusted-content wrapper', async () => {
+    for (const [status, report, lead] of [
+      ['failed', 'Could not open the page: example.org needs a sign-in.', 'could not finish'],
+      ['done', 'Opened the page “Example”.', 'finished'],
+    ] as const) {
+      const fake: HandoffRuntime = { ...noHandoff, run: async () => ({ runId: 'hnd_x', status, result: wrapReport(status, report) }) };
+      const agent = createAgentRuntime({ handoff: fake, llm: createOfflineClient() });
+      expect(await agent.startTurn({ userId: user, threadId: thread, text: 'Open https://example.org please' }).done).toBe('ok');
+      const said = (visible().at(-1)!.parts.filter((p) => p.type === 'text') as Array<{ text: string }>).map((p) => p.text).join('\n');
+      expect(said, status).toContain(report);
+      expect(said, status).toContain(lead);
+      for (const leak of ['handoff_report', 'untrusted', 'not instructions', 'browser agent from what it saw']) expect(said, status).not.toContain(leak);
+    }
+  });
+
+  it('tells the model how a user signs in to a site, with their email in the context', async () => {
+    expect(SYSTEM_PROMPT).toContain('`npm run browser -- <their email> <site>`');
+    expect(SYSTEM_PROMPT).toContain('save a login for that site in the Vault');
+    const saved = process.env.VECTOR_BROWSER_PROFILE;
+    const { client, seen } = scripted([[textBlock('ok')], [textBlock('ok')]]);
+    const agent = createAgentRuntime({ handoff: noHandoff, llm: client });
+    try {
+      delete process.env.VECTOR_BROWSER_PROFILE;
+      expect(await agent.startTurn({ userId: user, threadId: thread, text: 'hi' }).done).toBe('ok');
+      const context = seen[0]!.messages[0].content[0].text as string;
+      expect(context).toContain('User: Ada <a@x.dev>');
+      expect(context).not.toContain('VECTOR_BROWSER_PROFILE');
+      process.env.VECTOR_BROWSER_PROFILE = 'fresh';
+      expect(await agent.startTurn({ userId: user, threadId: thread, text: 'hi again' }).done).toBe('ok');
+      expect(JSON.stringify(seen[1]!.messages.at(-1))).toContain('signed out on every run');
+    } finally {
+      if (saved === undefined) delete process.env.VECTOR_BROWSER_PROFILE;
+      else process.env.VECTOR_BROWSER_PROFILE = saved;
+    }
   });
 });

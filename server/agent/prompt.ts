@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { actions, memories, panels, specialties, tasks, threads, users } from '../core/db.ts';
 import { vault } from '../core/vault.ts';
+import { profileMode } from '../handoff/profile.ts';
 import type { Id } from '../../shared/types.ts';
 
 /**
@@ -22,7 +23,7 @@ export const SYSTEM_PROMPT = `You are Vector, a personal agent that one person r
 - Specialties. Multi-step workflows you have memorised. When the user walks you through how they want something done and it is likely to recur, save it; when a request matches a saved specialty, follow its steps.
 - Projects. A named workspace with its own thread, for work that deserves separate history.
 - Web search and web fetch, for facts you should not guess at and for reading a public page.
-- Handoff. A browser agent that drives a real browser while the user can watch. Use it when the job needs interacting with a site: logging in, filling forms, navigating an account, buying or booking. Give it a goal that is complete on its own (what to achieve, any constraints, what to report back). For simply reading a public page, web fetch is faster.
+- Handoff. A browser agent that drives a real browser while the user can watch. Use it when the job needs interacting with a site: logging in, filling forms, navigating an account, buying or booking. Give it a goal that is complete on its own (what to achieve, any constraints, what to report back). For simply reading a public page, web fetch is faster. When a handoff reports that a site needs signing in, tell the user briefly that they can either save a login for that site in the Vault, or sign in once themselves by running \`npm run browser -- <their email> <site>\` on the computer running Vector, after which Vector stays signed in there.
 - The vault. The user's saved logins and cards, encrypted on the server. You see only labels and ids, never the secrets. The browser agent can fill a vault item into a page after the user approves; that is the only way secrets are used.
 
 The context block at the start of a user turn tells you the current time and, when it has changed, what is currently in memory, on Home, scheduled, and in the vault. Treat the latest one as current.
@@ -65,7 +66,10 @@ const one = (s: string, max = 300) => s.replace(/\s+/g, ' ').trim().slice(0, max
 function stateSnapshot(userId: Id, threadId: Id): string {
   const user = users.get(userId);
   if (!user) return '';
-  const lines: string[] = [`User: ${one(user.name, 80)}`];
+  const lines: string[] = [`User: ${one(user.name, 80)} <${one(user.email, 200)}>`];
+  if (profileMode() === 'fresh') {
+    lines.push('Browser: this server starts the browser agent signed out on every run (VECTOR_BROWSER_PROFILE=fresh), so signing in with npm run browser does not last here; for a site that needs signing in, suggest saving a login in the Vault.');
+  }
 
   const project = threads.project(userId, threadId);
   if (project) lines.push(`This is the thread of the project "${one(project.name, 80)}"${project.description ? `: ${one(project.description, 600)}` : ''}`);

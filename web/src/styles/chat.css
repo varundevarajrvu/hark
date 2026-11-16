@@ -50,25 +50,63 @@
   gap: var(--s-2);
 }
 .thread-empty {
+  position: relative;
   margin: auto 0;
   display: grid;
   gap: var(--s-3);
-  padding: var(--s-4) 0;
+  padding: var(--s-3) 0 var(--s-2);
+  isolation: isolate;
 }
-.thread-empty-mark {
+.thread-empty > .vfield {
+  z-index: -1;
+  inset: -16px -16px auto;
+  height: 240px;
+}
+.thread-empty-kicker {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--s-2);
+}
+.thread-empty-title {
+  font-size: clamp(2.1rem, 10.4vw, 3.25rem);
+  font-weight: 800;
+  letter-spacing: -0.055em;
+  line-height: 0.94;
+}
+.thread-empty-body {
+  color: var(--muted);
+  font-size: var(--f-base);
+  max-width: 36ch;
+}
+.demo-note {
+  padding: 8px 10px;
+  border: 1px dashed var(--line-2);
+  border-radius: var(--r-ctl);
+  color: var(--fg);
+  line-height: 1.5;
+}
+.thread-empty-try {
+  display: grid;
+  gap: var(--s-2);
+  padding-top: var(--s-1);
+}
+.thread-empty-try-head {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--s-3);
+}
+.thread-empty-voice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.thread-empty-voice .icon {
   color: var(--live);
 }
-.thread-empty h2 {
-  font-size: var(--f-2xl);
-  letter-spacing: -0.04em;
-}
-.thread-empty p {
-  color: var(--muted);
-  font-size: var(--f-read);
-  max-width: 34ch;
-}
-.thread-empty .prompt-grid {
-  margin-top: var(--s-3);
+.thread-empty .prompt-chips .prompt-chip {
+  font-size: var(--f-sm);
+  padding: 8px 14px 8px 12px;
 }
 .day-divider {
   display: flex;
@@ -90,6 +128,7 @@
   flex-direction: column;
   min-width: 0;
   gap: var(--s-2);
+  overflow-wrap: anywhere; /* a 300-character URL must wrap, never push the page sideways */
 }
 .msg-meta {
   display: inline-flex;
@@ -121,7 +160,38 @@
   opacity: 0.55;
 }
 .msg-vector {
-  gap: var(--s-3);
+  position: relative;
+  gap: 10px;
+}
+/* Cards get a little more air than text and trace lines, so the rhythm reads text · trace · card. */
+.msg-vector > .fr,
+.msg-vector > .slip {
+  margin-block: 6px;
+}
+.msg-vector > .notice {
+  margin-block: 2px;
+}
+/* While Vector works, a live rail runs down the left of its message, outside the column so nothing shifts. */
+.msg-vector.is-streaming::before {
+  content: '';
+  position: absolute;
+  top: 2px;
+  bottom: 0;
+  left: -10px;
+  width: 2px;
+  border-radius: 2px;
+  background: linear-gradient(var(--lime), var(--lime)) 0 0 / 100% 40% no-repeat, var(--live-line);
+  animation: rail 1.6s ease-in-out infinite;
+}
+.msg-working {
+  color: var(--live);
+}
+.msg-elapsed {
+  font-variant-numeric: tabular-nums;
+  color: var(--muted);
+}
+.msg-vector.is-streaming .msg-meta .mark {
+  animation: pulse 1.3s ease-in-out infinite;
 }
 
 /* The streaming caret: a blinking block, lime on ink. */
@@ -265,6 +335,7 @@
 .notice {
   display: grid;
   gap: 2px;
+  overflow-wrap: anywhere;
   padding-left: var(--s-3);
   border-left: 2px solid var(--line-2);
   color: var(--muted);
@@ -501,12 +572,41 @@
   white-space: nowrap;
   overflow: hidden;
 }
-.fr-host {
-  color: var(--fg);
+.fr-url-face {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+  overflow: hidden;
 }
-.fr-path {
+.fr-url-face .icon {
+  margin-right: 5px;
+}
+.fr-host {
+  flex: 0 1 auto;
+  min-width: 4ch;
+  color: var(--fg);
   overflow: hidden;
   text-overflow: ellipsis;
+}
+.fr-path {
+  flex: 0 100 auto; /* the path gives way long before the host does */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.fr-step.fr-step-url {
+  grid-template-columns: minmax(0, 1fr);
+}
+.lightbox-url {
+  margin: var(--s-3) var(--s-4) 0;
+  color: var(--muted);
+  font-family: var(--mono);
+  font-size: var(--f-xs);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+  max-height: 6em;
+  overflow-y: auto;
 }
 .fr-tag {
   flex: none;
@@ -575,6 +675,16 @@
 .fr-cancelled .fr-shot img {
   filter: grayscale(0.85) brightness(0.9);
 }
+/* A finished run is history: a short strip of its last frame, not a full window. */
+.fr.is-ended .fr-shot {
+  aspect-ratio: 16 / 5;
+}
+.fr.is-ended .fr-window {
+  border-color: var(--line);
+}
+.fr-failed.is-ended .fr-window {
+  border-color: var(--danger);
+}
 .fr-goal {
   display: grid;
   gap: 3px;
@@ -599,6 +709,8 @@
 }
 .fr-failed .fr-result {
   background: var(--danger-tint);
+  border-left: 3px solid var(--danger);
+  border-radius: 4px var(--r-ctl) var(--r-ctl) 4px;
 }
 .fr-failed .fr-result .label {
   color: var(--danger);
@@ -660,6 +772,13 @@
 }
 .fr-detail {
   overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.fr-detail.fr-detail-full {
+  display: block;
 }
 .fr-step.is-newest {
   border-left-color: var(--lime);
@@ -818,4 +937,172 @@
   background: var(--fg);
   color: var(--bg);
   font-size: var(--f-sm);
+}
+
+/* ── How a run ended ── */
+.run-failed {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--s-3);
+  padding: 10px 8px 10px 12px;
+  border: 1px solid var(--danger);
+  border-radius: var(--r-ctl);
+  background: var(--danger-tint);
+}
+.run-failed-glyph {
+  display: grid;
+  place-items: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--danger);
+  color: var(--danger-on);
+}
+.run-failed-text {
+  display: grid;
+  gap: 1px;
+  min-width: 0;
+}
+.run-failed-text .label {
+  color: var(--danger);
+}
+.run-failed-text p {
+  font-size: var(--f-sm);
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+  display: -webkit-box;
+  -webkit-line-clamp: 3;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.run-failed-retry {
+  background: transparent;
+  border-color: var(--danger);
+  color: var(--fg);
+}
+.run-stopped {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s-2);
+}
+.run-stopped .stop-glyph {
+  width: 8px;
+  height: 8px;
+}
+
+/* ── Composer: working ── */
+.composer-pill {
+  overflow: hidden;
+}
+.composer-sweep {
+  position: absolute;
+  inset: 0 0 auto;
+  height: 2px;
+  pointer-events: none;
+}
+.composer-sweep::after {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 35%;
+  background: linear-gradient(90deg, transparent, var(--lime) 40%, var(--lime) 60%, transparent);
+  animation: sweep 1.4s linear infinite;
+}
+.composer.is-running .composer-pill {
+  border-color: var(--live-line);
+  background: linear-gradient(var(--live-tint), var(--live-tint)), var(--s2);
+}
+.composer.is-running textarea::placeholder {
+  color: var(--live);
+  opacity: 1;
+}
+
+/* ── Composer: voice ── */
+.composer-mic {
+  background: transparent;
+  color: var(--fg);
+}
+@media (hover: hover) {
+  .composer-mic.is-idle:hover:not(:disabled) {
+    background: var(--s3);
+  }
+}
+.composer-mic.is-listening {
+  width: 52px;
+  background: var(--lime);
+  color: var(--ink);
+  box-shadow: 0 0 0 0 rgb(200 255 46 / 0.5);
+  animation: mic-ring 1.4s ease-out infinite;
+}
+.composer-mic.is-waiting {
+  border: 1px dashed var(--line-2);
+  color: var(--muted);
+}
+.mic-bars {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  height: 20px;
+}
+.mic-bars i {
+  width: 3px;
+  height: 100%;
+  border-radius: 2px;
+  background: currentColor;
+  transform: scaleY(0.25);
+  animation: level 0.9s ease-in-out infinite;
+}
+.mic-bars i:nth-child(2) {
+  animation-delay: -0.55s;
+}
+.mic-bars i:nth-child(3) {
+  animation-delay: -0.2s;
+}
+.mic-bars i:nth-child(4) {
+  animation-delay: -0.7s;
+}
+.mic-bars i:nth-child(5) {
+  animation-delay: -0.35s;
+}
+.is-hearing .mic-bars i {
+  animation-duration: 0.5s;
+}
+.composer.is-listening .composer-pill {
+  border-color: var(--lime);
+  outline: 1px solid var(--lime);
+  box-shadow: var(--inner), 0 0 0 5px rgb(200 255 46 / 0.12), 0 10px 30px rgb(0 0 0 / 0.28);
+}
+.composer.is-listening textarea::placeholder,
+.composer.is-listening .teach-input::placeholder {
+  color: var(--live);
+  opacity: 1;
+}
+.composer.is-waiting .composer-pill {
+  border-style: dashed;
+  border-color: var(--line-2);
+  outline: none;
+}
+.composer textarea:read-only,
+.composer .teach-input:read-only {
+  caret-color: transparent;
+}
+@media (prefers-color-scheme: light) {
+  /* On paper lime is only ever a fill behind ink: live lines are drawn in ink. */
+  .msg-vector.is-streaming::before {
+    background: linear-gradient(var(--fg), var(--fg)) 0 0 / 100% 40% no-repeat, var(--line-2);
+  }
+  .composer-sweep::after {
+    background: linear-gradient(90deg, transparent, var(--fg) 40%, var(--fg) 60%, transparent);
+  }
+  .composer.is-listening .composer-pill {
+    border-color: var(--fg);
+    outline-color: var(--fg);
+    box-shadow: var(--inner), 0 0 0 5px rgb(200 255 46 / 0.55);
+  }
+  .composer-mic.is-listening {
+    box-shadow: 0 0 0 2px var(--fg);
+    animation: none;
+  }
 }

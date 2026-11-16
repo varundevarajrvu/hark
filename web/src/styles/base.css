@@ -253,3 +253,43 @@ main:focus-visible {
     scroll-behavior: auto !important;
   }
 }
+
+/* The arrow field drifts one tile up and to the right, slowly: direction, not decoration. */
+@keyframes drift {
+  to {
+    background-position: 28px -28px;
+  }
+}
+@keyframes aurora {
+  0% {
+    transform: translate(0, 0) scale(1);
+  }
+  100% {
+    transform: translate(46px, 18px) scale(1.12);
+  }
+}
+@keyframes level {
+  0%,
+  100% {
+    transform: scaleY(0.25);
+  }
+  50% {
+    transform: scaleY(1);
+  }
+}
+@keyframes mic-ring {
+  0% {
+    box-shadow: 0 0 0 0 rgb(200 255 46 / 0.45);
+  }
+  100% {
+    box-shadow: 0 0 0 12px rgb(200 255 46 / 0);
+  }
+}
+@keyframes rail {
+  0% {
+    background-position: 0 -40%;
+  }
+  100% {
+    background-position: 0 140%;
+  }
+}
