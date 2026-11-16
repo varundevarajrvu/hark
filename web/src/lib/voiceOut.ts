@@ -8,7 +8,7 @@
 import { useSyncExternalStore } from 'react';
 import type { Id, ServerEvent } from '../../../shared/types.ts';
 import { getState, toast } from '../store.ts';
-import { onSpeechSupportChange, probeNative, speakText, speechMode, stopSpeaking, ttsMode, type Utterance } from './speech.ts';
+import { onSpeechSupportChange, probeNative, speakText, speechMode, stopSpeaking, ttsMode, ttsUndecided, type Utterance } from './speech.ts';
 import { APPROVAL_LINE, RUN_FAILED_LINE, speakableReply } from './spoken.ts';
 
 export interface VoiceOutState {
@@ -56,10 +56,19 @@ export function useVoiceOut<T>(selector: (s: VoiceOutState) => T): T {
   );
 }
 
+/** A reply that arrived while the app had not yet said whether it can speak: said once it has, if still wanted. */
+let held: { text: string; threadId: Id; messageId: Id | null } | null = null;
+let heldOpenThread: Id | null = null;
+
 function refreshSupport(): void {
   const canSpeak = ttsMode() !== null;
   const canTalk = canSpeak && speechMode() !== null;
   if (canSpeak !== state.canSpeak || canTalk !== state.canTalk) set({ canSpeak, canTalk });
+  if (held && !ttsUndecided()) {
+    const { text, threadId, messageId } = held;
+    held = null;
+    if (canSpeak && audible(threadId, heldOpenThread)) say(text, threadId, messageId);
+  }
 }
 
 let started = false;
@@ -151,6 +160,11 @@ export function noteEvent(ev: ServerEvent, openThreadId: Id | null): void {
 let current: Utterance | null = null;
 
 function say(text: string, threadId: Id, messageId: Id | null): void {
+  if (ttsUndecided()) {
+    held = { text, threadId, messageId }; // hold it until the app says whether it can speak
+    heldOpenThread = threadId;
+    return;
+  }
   const utterance = speakText(text, (error) => {
     if (current !== utterance) return;
     current = null;
@@ -167,6 +181,7 @@ function say(text: string, threadId: Id, messageId: Id | null): void {
 
 /** Stop speaking now: the user tapped the mic, sent, stopped, tapped the indicator, or left. */
 export function silence(): void {
+  held = null;
   if (!current && !state.speaking) return;
   current = null;
   stopSpeaking();

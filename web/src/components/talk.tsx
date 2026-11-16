@@ -26,6 +26,12 @@ const WORD: Record<TalkPhase, string> = {
 
 export const COUNTDOWN_MS = 2000;
 
+/** Bring the waiting approval into view. It is decided there, with a tap, never by voice. */
+function showSlip(): void {
+  const slips = document.querySelectorAll('.thread .slip-pending');
+  slips[slips.length - 1]?.scrollIntoView({ block: 'end', behavior: 'smooth' }); // the end is where Approve and Deny are
+}
+
 export function TalkSurface({ threadId }: { threadId: Id }) {
   const running = useStore((s) => Boolean(s.running[threadId]));
   const approvals = useStore((s) => s.approvals);
@@ -191,6 +197,9 @@ export function TalkSurface({ threadId }: { threadId: Id }) {
 
   useEffect(() => {
     if (phase === 'editing') editRef.current?.focus();
+    if (phase !== 'paused') return;
+    const timer = window.setTimeout(showSlip, 120); // the slip may render a moment after the request
+    return () => window.clearTimeout(timer);
   }, [phase]);
 
   const line =
@@ -238,7 +247,7 @@ export function TalkSurface({ threadId }: { threadId: Id }) {
         </button>
       ) : (
         <p className={`talk-line${line ? '' : ' is-placeholder'}`} aria-live={phase === 'speaking' ? 'off' : 'polite'}>
-          {line || placeholder}
+          {phase === 'working' && line ? `“${line}”` : line || placeholder}
         </p>
       )}
 
@@ -267,6 +276,10 @@ export function TalkSurface({ threadId }: { threadId: Id }) {
           <button type="button" className="talk-btn talk-stop" onClick={() => void cancelRun(threadId)}>
             <span className="stop-glyph" aria-hidden="true" />
             Stop
+          </button>
+        ) : phase === 'paused' ? (
+          <button type="button" className="talk-btn talk-show" onClick={showSlip}>
+            Show it
           </button>
         ) : phase === 'speaking' ? (
           <button type="button" className="talk-btn talk-stop" onClick={() => silence()}>

@@ -89,7 +89,9 @@ function postNative(bridge: NativeBridge, message: Record<string, unknown>): boo
   }
 }
 
-// ── What the app can do: asked once. An app that never answers predates the question: it can listen, not speak.
+// ── What the app can do: asked once. The app answers once its text-to-speech engine has started or failed, which
+// can take seconds on a cold start, so the answer is applied whenever it lands within ten seconds. Until then the
+// mic works (recognition predates the question); an app that never answers is an older one: it listens, not speaks.
 
 export interface NativeCaps {
   speech: boolean;
@@ -100,7 +102,7 @@ let capsAsked = false;
 const capsListeners = new Set<() => void>();
 
 /** Ask the app what it supports (once). Call at startup; harmless without the app. */
-export function probeNative(timeoutMs = 1000): void {
+export function probeNative(timeoutMs = 10_000): void {
   if (capsAsked || typeof window === 'undefined') return;
   const bridge = nativeBridge();
   if (!bridge) return;
@@ -119,6 +121,11 @@ export function probeNative(timeoutMs = 1000): void {
   });
   window.setTimeout(() => settle({ speech: true, tts: false }), timeoutMs);
   if (!postNative(bridge, { type: 'capabilities', id })) settle({ speech: true, tts: false });
+}
+
+/** Inside the app, before it has said whether it can speak. */
+export function ttsUndecided(): boolean {
+  return typeof window !== 'undefined' && nativeBridge() !== null && caps === null;
 }
 
 /** Changes to what the device can do (the app's answer arriving, voices loading). */
@@ -362,7 +369,7 @@ function pickVoice(synth: SpeechSynthesis): SpeechSynthesisVoice | null {
 
 /** Sentence-sized pieces: Chrome cuts a long utterance off after about fifteen seconds. */
 export function chunkForSpeech(text: string, max = 180): string[] {
-  const sentences = text.match(/[^.!?…]+[.!?…]+["'”’)]*\s*|[^.!?…]+$/g) ?? [text];
+  const sentences = text.split(/(?<=[.!?…]["'”’)]*)\s+/); // a full stop inside a host name is not a sentence end
   const chunks: string[] = [];
   let current = '';
   for (const raw of sentences) {
