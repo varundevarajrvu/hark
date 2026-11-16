@@ -6,6 +6,8 @@ import { renderMarkdown } from '../lib/markdown.ts';
 import { emptyThread, useStore } from '../store.ts';
 import { ApprovalPart, ConsentBar, HandoffPart, TraceStack } from './cards.tsx';
 import { ErrorNote, Icon, Loading, Mark, PromptChip, Spinner } from './ui.tsx';
+import { MicButton, useVoice, voiceStatus } from './voice.tsx';
+import { speechMode } from '../lib/speech.ts';
 
 export const STARTER_PROMPTS = [
   "Remember that I'm vegetarian",
@@ -27,6 +29,14 @@ export function Composer(props: {
   const [error, setError] = useState('');
   const [sending, setSending] = useState(false);
   const ref = useRef<HTMLTextAreaElement>(null);
+  const voice = useVoice({
+    value: text,
+    setValue: (next) => {
+      setText(next);
+      setError('');
+    },
+  });
+  const listening = voice.state !== 'idle';
 
   useLayoutEffect(() => {
     const el = ref.current;
@@ -37,7 +47,7 @@ export function Composer(props: {
 
   const submit = async () => {
     const value = text.trim();
-    if (!value || sending) return;
+    if (!value || sending || listening) return;
     if (props.running) {
       setError('Still working on the last request. Wait, or stop it.');
       return;
@@ -53,9 +63,17 @@ export function Composer(props: {
     }
   };
 
+  const placeholder = props.running
+    ? 'Working…'
+    : voice.state === 'listening'
+      ? 'Listening…'
+      : voice.state === 'waiting'
+        ? 'Waiting for speech…'
+        : (props.placeholder ?? 'Tell Vector what to do');
+
   return (
     <form
-      className={`composer${props.running ? ' is-running' : ''}`}
+      className={`composer${props.running ? ' is-running' : ''}${listening ? ` is-${voice.state}` : ''}`}
       onSubmit={(e) => {
         e.preventDefault();
         void submit();
@@ -64,17 +82,21 @@ export function Composer(props: {
       <ErrorNote>{error}</ErrorNote>
       <div className="composer-pill">
         {props.running ? (
-          <span className="composer-live" role="status">
-            <span className="pulse" aria-hidden="true" />
-            <span className="sr-only">Vector is working. You can stop it at any time.</span>
-          </span>
+          <>
+            <span className="composer-sweep" aria-hidden="true" />
+            <span className="composer-live" role="status">
+              <span className="pulse" aria-hidden="true" />
+              <span className="sr-only">Vector is working. You can stop it at any time.</span>
+            </span>
+          </>
         ) : null}
         <textarea
           ref={ref}
           rows={1}
           value={text}
+          readOnly={listening}
           aria-label={props.label ?? 'Message Vector'}
-          placeholder={props.running ? 'Working…' : (props.placeholder ?? 'Tell Vector what to do')}
+          placeholder={placeholder}
           enterKeyHint="send"
           onChange={(e) => {
             setText(e.target.value);
@@ -87,16 +109,20 @@ export function Composer(props: {
             }
           }}
         />
+        {props.running ? null : <MicButton voice={voice} disabled={sending} />}
         {props.running && props.onStop ? (
           <button type="button" className="composer-btn composer-stop" onClick={props.onStop}>
             <span className="stop-glyph" aria-hidden="true" />
             Stop
           </button>
         ) : (
-          <button type="submit" className="composer-btn composer-send" disabled={!text.trim() || sending} aria-label="Send">
+          <button type="submit" className="composer-btn composer-send" disabled={!text.trim() || sending || listening} aria-label="Send">
             {sending ? <Spinner /> : <Icon name="send" size={20} />}
           </button>
         )}
+        <span className="sr-only" role="status">
+          {voiceStatus(voice.state)}
+        </span>
       </div>
     </form>
   );
@@ -152,6 +178,23 @@ const SOURCE_LABEL: Record<string, string> = {
   panel: 'Panel',
 };
 
+/** "0:12" since a run started, ticking only while it runs. */
+function Elapsed({ since }: { since: string }) {
+  const start = useMemo(() => new Date(since).getTime(), [since]);
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const timer = window.setInterval(() => setNow(Date.now()), 1000);
+    return () => window.clearInterval(timer);
+  }, []);
+  if (Number.isNaN(start)) return null;
+  const seconds = Math.max(0, Math.floor((now - start) / 1000));
+  return (
+    <span className="msg-elapsed" aria-hidden="true">
+      {Math.floor(seconds / 60)}:{String(seconds % 60).padStart(2, '0')}
+    </span>
+  );
+}
+
 const Message = memo(function Message(props: { message: ChatMessage; streaming: boolean; timezone?: string }) {
   const { message, streaming } = props;
   const time = formatTime(message.createdAt, props.timezone);
@@ -176,7 +219,14 @@ const Message = memo(function Message(props: { message: ChatMessage; streaming: 
     <article className={`msg msg-vector${streaming ? ' is-streaming' : ''}`} aria-label={`Vector, ${time}`}>
       <span className="label msg-meta">
         <Mark size={11} />
-        Vector · {time}
+        {streaming ? (
+          <>
+            <span className="msg-working">Working</span>
+            <Elapsed since={message.createdAt} />
+          </>
+        ) : (
+          <>Vector · {time}</>
+        )}
       </span>
       {blocks.map((block) =>
         block.kind === 'trace' ? <TraceStack key={block.id} tools={block.tools} /> : <AssistantPart key={block.part.id} part={block.part} />,
@@ -190,6 +240,79 @@ const Message = memo(function Message(props: { message: ChatMessage; streaming: 
     </article>
   );
 });
+
+// ───────────────────────── Empty thread & run endings ─────────────────────────
+
+export const DEMO_NOTE = 'Demo mode · scripted replies · add a model key on the server for the real agent';
+
+function EmptyThread(props: { title?: string; body?: string; disabled: boolean; onPick: (text: string) => void }) {
+  const mock = useStore((s) => Boolean(s.llm?.mock));
+  const canSpeak = useMemo(() => speechMode() !== null, []);
+  const custom = props.title !== undefined;
+  return (
+    <div className="thread-empty">
+      <div className="vfield vfield-drift" aria-hidden="true" />
+      <p className="label thread-empty-kicker">
+        <span className="pulse" aria-hidden="true" />
+        Vector · ready
+      </p>
+      <h2 className="thread-empty-title">
+        {custom ? (
+          props.title
+        ) : (
+          <>
+            Say it once.
+            <br />
+            <span className="hl">Consider it done.</span>
+          </>
+        )}
+      </h2>
+      <p className="thread-empty-body">
+        {props.body ?? 'Vector remembers, plans and acts on the web for you. It asks before it spends, sends or signs in.'}
+      </p>
+      {mock ? <p className="label demo-note">{DEMO_NOTE}</p> : null}
+      <div className="thread-empty-try">
+        <p className="label">Try</p>
+        <div className="prompt-chips">
+          {STARTER_PROMPTS.map((prompt) => (
+            <PromptChip key={prompt} text={prompt} onPick={props.onPick} disabled={props.disabled} />
+          ))}
+        </div>
+      </div>
+      {canSpeak ? (
+        <p className="label thread-empty-voice">
+          <Icon name="mic" size={14} />
+          Or tap the mic and just say it
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
+/** A failed run: one short block, the reason on one or two lines, and a way to try again. */
+function RunFailed({ error, onRetry }: { error?: string; onRetry?: () => void }) {
+  const full = (error ?? '').trim() || 'Something went wrong. Try again in a moment.';
+  const short = full.split('\n')[0]?.slice(0, 160) ?? full;
+  return (
+    <div className="run-end run-failed" role="alert">
+      <span className="run-failed-glyph" aria-hidden="true">
+        <Icon name="x" size={14} />
+      </span>
+      <div className="run-failed-text">
+        <span className="label">Run failed</span>
+        <p title={full !== short ? full : undefined}>
+          {short}
+          {full !== short ? '…' : ''}
+        </p>
+      </div>
+      {onRetry ? (
+        <button type="button" className="btn btn-sm run-failed-retry" onClick={onRetry}>
+          Retry
+        </button>
+      ) : null}
+    </div>
+  );
+}
 
 // ───────────────────────── Thread view ─────────────────────────
 
@@ -259,6 +382,13 @@ export function ThreadView(props: { threadId: Id; strip?: ReactNode; emptyTitle?
   };
 
   const isEmpty = thread.loaded && thread.messages.length === 0 && thread.pending.length === 0;
+  const retryText = useMemo(() => {
+    for (let i = thread.messages.length - 1; i >= 0; i--) {
+      const m = thread.messages[i];
+      if (m?.role === 'user') return m.parts.map((p) => (p.type === 'text' ? p.text : '')).join('').trim() || null;
+    }
+    return null;
+  }, [thread.messages]);
   let lastDay = '';
 
   return (
@@ -289,18 +419,7 @@ export function ThreadView(props: { threadId: Id; strip?: ReactNode; emptyTitle?
           ) : null}
 
           {isEmpty ? (
-            <div className="thread-empty">
-              <span className="thread-empty-mark">
-                <Mark size={44} />
-              </span>
-              <h2>{props.emptyTitle ?? 'Say it once.'}</h2>
-              <p>{props.emptyBody ?? 'Vector remembers, plans and acts. It asks before it spends, sends or signs in.'}</p>
-              <div className="prompt-grid">
-                {STARTER_PROMPTS.map((prompt) => (
-                  <PromptChip key={prompt} text={prompt} onPick={(text) => void send(text)} disabled={running} />
-                ))}
-              </div>
-            </div>
+            <EmptyThread title={props.emptyTitle} body={props.emptyBody} disabled={running} onPick={(text) => void send(text)} />
           ) : null}
 
           {thread.messages.map((message) => {
@@ -327,12 +446,14 @@ export function ThreadView(props: { threadId: Id; strip?: ReactNode; emptyTitle?
           ))}
 
           {thread.lastRun ? (
-            <p className={`notice ${thread.lastRun.status === 'error' ? 'notice-error' : 'notice-info'} run-end`}>
-              <span className="label">{thread.lastRun.status === 'error' ? 'Run failed' : 'Stopped'}</span>
-              <span>
-                {thread.lastRun.status === 'cancelled' ? 'Nothing further was done.' : (thread.lastRun.error ?? 'Try again in a moment.')}
-              </span>
-            </p>
+            thread.lastRun.status === 'error' ? (
+              <RunFailed error={thread.lastRun.error} onRetry={retryText && !running ? () => void send(retryText) : undefined} />
+            ) : (
+              <p className="run-end run-stopped label">
+                <span className="stop-glyph" aria-hidden="true" />
+                Stopped · nothing further was done
+              </p>
+            )
           ) : null}
         </div>
       </div>

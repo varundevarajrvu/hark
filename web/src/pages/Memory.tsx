@@ -5,6 +5,7 @@ import { api, errorText } from '../api.ts';
 import { ConsentBar } from '../components/cards.tsx';
 import { ConfirmDialog, Dialog, ErrorNote, Icon, Loading, Spinner } from '../components/ui.tsx';
 import { setState, toast, useStore } from '../store.ts';
+import { MicButton, useVoice, voiceStatus } from '../components/voice.tsx';
 
 const EXAMPLES = ["I'm vegetarian", 'I prefer aisle seats', 'My sister Divya lives in Pune'];
 const GENERAL = 'general';
@@ -103,6 +104,8 @@ function TeachPill({ categories, seed }: { categories: string[]; seed: { text: s
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const input = useRef<HTMLInputElement>(null);
+  const voice = useVoice({ value: text, setValue: (next) => (setText(next), setError('')) });
+  const listening = voice.state !== 'idle';
 
   useEffect(() => {
     if (!seed.n) return;
@@ -113,7 +116,7 @@ function TeachPill({ categories, seed }: { categories: string[]; seed: { text: s
   const submit = async (e: FormEvent) => {
     e.preventDefault();
     const content = text.trim();
-    if (!content || busy) return;
+    if (!content || busy || listening) return;
     setBusy(true);
     setError('');
     try {
@@ -130,7 +133,7 @@ function TeachPill({ categories, seed }: { categories: string[]; seed: { text: s
   };
 
   return (
-    <form className="composer teach" onSubmit={(e) => void submit(e)} aria-label="Teach Vector something">
+    <form className={`composer teach${listening ? ` is-${voice.state}` : ''}`} onSubmit={(e) => void submit(e)} aria-label="Teach Vector something">
       <ErrorNote>{error}</ErrorNote>
       {picking ? (
         <div className="teach-tags" role="group" aria-label="Category">
@@ -153,16 +156,23 @@ function TeachPill({ categories, seed }: { categories: string[]; seed: { text: s
           value={text}
           onChange={(e) => (setText(e.target.value), error && setError(''))}
           aria-label="Something Vector should know about you"
-          placeholder="Teach Vector something"
+          placeholder={voice.state === 'listening' ? 'Listening…' : voice.state === 'waiting' ? 'Waiting for speech…' : 'Teach Vector something'}
+          readOnly={listening}
           maxLength={2000}
           enterKeyHint="done"
         />
+        {listening ? null : (
         <button type="button" className="teach-tag" aria-expanded={picking} aria-label={`Category: ${category.trim() || GENERAL}. Change`} onClick={() => setPicking((open) => !open)}>
           {category.trim() || GENERAL}
         </button>
-        <button type="submit" className="composer-btn composer-send" disabled={!text.trim() || busy} aria-label="Save memory">
+        )}
+        <MicButton voice={voice} disabled={busy} />
+        <button type="submit" className="composer-btn composer-send" disabled={!text.trim() || busy || listening} aria-label="Save memory">
           {busy ? <Spinner /> : <Icon name="plus" size={20} />}
         </button>
+        <span className="sr-only" role="status">
+          {voiceStatus(voice.state)}
+        </span>
       </div>
     </form>
   );

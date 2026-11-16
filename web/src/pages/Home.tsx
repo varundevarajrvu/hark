@@ -1,11 +1,11 @@
-import { useMemo, useState, type FormEvent } from 'react';
+import { useEffect, useMemo, useState, type FormEvent, type ReactNode } from 'react';
 import type { ActionItem, Panel } from '../../../shared/types.ts';
 import { labelThread, refresh, sendMessage } from '../actions.ts';
 import { api, errorText, panelFrameUrl } from '../api.ts';
 import { ConsentBar } from '../components/cards.tsx';
 import { Composer, STARTER_PROMPTS } from '../components/thread.tsx';
 import { Arrow, ConfirmDialog, ErrorNote, Icon, PromptChip, Spinner, WithArrows } from '../components/ui.tsx';
-import { formatTime, greeting, relativeTime } from '../lib/format.ts';
+import { dayKey, formatTime, greeting, relativeTime } from '../lib/format.ts';
 import { navigate, threadHref } from '../router.ts';
 import { pendingApprovals, toast, useStore } from '../store.ts';
 import { ProjectDialog } from './Project.tsx';
@@ -24,9 +24,8 @@ function useSendToMain(): (text: string) => Promise<string | null> {
 
 const PRIORITY_WORD = { 1: 'High priority', 2: 'Medium priority', 3: 'Low priority' } as const;
 
-function Ticket({ action, lead }: { action: ActionItem; lead: boolean }) {
+function useTicket(action: ActionItem) {
   const [busy, setBusy] = useState<'run' | 'dismiss' | null>(null);
-  const running = action.status === 'running';
 
   const run = async () => {
     setBusy('run');
@@ -53,8 +52,14 @@ function Ticket({ action, lead }: { action: ActionItem; lead: boolean }) {
     }
   };
 
+  return { busy, run, dismiss, running: action.status === 'running' };
+}
+
+/** The one ticket that gets the big lime verb. */
+function LeadTicket({ action }: { action: ActionItem }) {
+  const { busy, run, dismiss, running } = useTicket(action);
   return (
-    <li className={`ticket${lead ? ' ticket-lead' : ''}${running ? ' is-running' : ''}`}>
+    <li className="ticket ticket-lead">
       <div className="ticket-top">
         <span className={`tag ticket-p${action.priority}`} aria-label={PRIORITY_WORD[action.priority]}>
           P{action.priority}
@@ -68,13 +73,38 @@ function Ticket({ action, lead }: { action: ActionItem; lead: boolean }) {
         <WithArrows text={action.title} />
       </p>
       <p className="ticket-detail">{action.detail}</p>
+      <button type="button" className="ticket-verb is-go" disabled={busy !== null} onClick={() => void run()}>
+        <span>{action.verb}</span>
+        {busy === 'run' ? <Spinner /> : <Arrow />}
+      </button>
+    </li>
+  );
+}
+
+/** Every other ticket: one compact row, the verb as a small outlined button. */
+function TicketRow({ action }: { action: ActionItem }) {
+  const { busy, run, dismiss, running } = useTicket(action);
+  return (
+    <li className={`trow${running ? ' is-running' : ''}`}>
+      <p className="trow-title">
+        <span className="sr-only">{PRIORITY_WORD[action.priority]}: </span>
+        <WithArrows text={action.title} />
+      </p>
+      <p className="trow-meta">
+        <span className="trow-detail">{action.detail}</span>
+        {running ? null : (
+          <button type="button" className="ticket-dismiss label" disabled={busy !== null} onClick={() => void dismiss()} aria-label={`Dismiss: ${action.title}`}>
+            Dismiss
+          </button>
+        )}
+      </p>
       {running ? (
-        <p className="ticket-running label">
+        <span className="trow-flight label">
           <span className="pulse" aria-hidden="true" />
           In flight
-        </p>
+        </span>
       ) : (
-        <button type="button" className={`ticket-verb${lead ? ' is-go' : ''}`} disabled={busy !== null} onClick={() => void run()}>
+        <button type="button" className="trow-verb" disabled={busy !== null} onClick={() => void run()}>
           <span>{action.verb}</span>
           {busy === 'run' ? <Spinner /> : <Arrow />}
         </button>
@@ -168,15 +198,47 @@ function PanelCard({ panel }: { panel: Panel }) {
 
 // ───────────────────────── Home ─────────────────────────
 
+function SectionHead({ id, title, count, action }: { id: string; title: string; count?: number; action?: ReactNode }) {
+  return (
+    <div className="home-head">
+      <h2 id={id} className="label">
+        {title}
+      </h2>
+      {count ? <span className="label home-head-count">{String(count).padStart(2, '0')}</span> : null}
+      {action}
+    </div>
+  );
+}
+
+/** "Next 08:00", "Next tomorrow 08:00", "Next Fri 20 Nov". */
+function nextRunWords(iso: string, timezone?: string): string {
+  const today = dayKey(new Date().toISOString(), timezone);
+  const tomorrow = dayKey(new Date(Date.now() + 86_400_000).toISOString(), timezone);
+  const day = dayKey(iso, timezone);
+  if (day === today) return `Next ${formatTime(iso, timezone)}`;
+  if (day === tomorrow) return `Next tomorrow ${formatTime(iso, timezone)}`;
+  try {
+    return `Next ${new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: safeZone(timezone) }).format(new Date(iso))}`;
+  } catch {
+    return 'Next run scheduled';
+  }
+}
+
 export function HomePage() {
   const user = useStore((s) => s.user);
   const actions = useStore((s) => s.actions);
   const panels = useStore((s) => s.panels);
   const projects = useStore((s) => s.projects);
+  const tasks = useStore((s) => s.tasks);
+  const memories = useStore((s) => s.memories);
   const approvals = useStore((s) => s.approvals);
   const runningThreads = useStore((s) => s.running);
   const [creating, setCreating] = useState(false);
   const sendToMain = useSendToMain();
+
+  useEffect(() => {
+    refresh('memories').catch(() => {}); // only for the count in the strip
+  }, []);
 
   const visible = useMemo(
     () =>
@@ -193,55 +255,70 @@ export function HomePage() {
   const open = visible.filter((a) => a.status === 'open').length;
   const needs = open + waiting;
   const flights = Math.max(Object.keys(runningThreads).length, visible.length - open);
+  const scheduled = tasks.filter((t) => t.enabled);
+  const next = scheduled
+    .filter((t) => t.nextRunAt)
+    .sort((a, b) => (a.nextRunAt ?? '').localeCompare(b.nextRunAt ?? ''))[0];
   const now = new Date();
   const date = new Intl.DateTimeFormat('en-GB', { weekday: 'short', day: 'numeric', month: 'short', timeZone: safeZone(timezone) }).format(now);
+  const hello = greeting(timezone).replace(/^Good (.)/, (_, c: string) => c.toUpperCase());
   const brandNew = !visible.length && !panels.length && !projects.length;
-  const leadId = visible.find((a) => a.status === 'open')?.id;
+  const lead = visible.find((a) => a.status === 'open');
+  const rest = visible.filter((a) => a !== lead);
 
   return (
     <>
       <div className="home-scroll">
         <div className="page home">
-          <header className="hero">
-            <div className="vfield" aria-hidden="true" />
+          <header className={`hero ${needs ? 'hero-needs' : 'hero-clear'}`}>
+            {needs ? <div className="hero-glow" aria-hidden="true" /> : null}
+            <div className="vfield vfield-drift" aria-hidden="true" />
             <p className="label hero-date">
-              {date} · {formatTime(now.toISOString(), timezone)}
+              {hello}, {firstName || 'you'} · {date} {formatTime(now.toISOString(), timezone)}
             </p>
-            <h2 className="hero-hello">
-              {greeting(timezone).replace(/^Good (.)/, (_, c: string) => c.toUpperCase())},
-              <br />
-              {firstName || 'you'}.
-            </h2>
-            <p className="hero-state">
-              {needs ? (
-                <>
-                  <span className="hl">
-                    {needs} thing{needs === 1 ? '' : 's'}
-                  </span>{' '}
+            {needs ? (
+              <h2 className="hero-head">
+                <span className="hero-num">{needs}</span>
+                <span className="hero-words">
+                  thing{needs === 1 ? '' : 's'}
+                  <br />
                   need{needs === 1 ? 's' : ''} you
-                </>
-              ) : (
-                'Nothing needs you'
-              )}
+                </span>
+              </h2>
+            ) : (
+              <div className="hero-calm">
+                <h2 className="hero-clear-head">All clear.</h2>
+                <p className="hero-clear-note">Nothing needs you. When Vector spots something it can finish — a bill, a renewal, a reply — it leaves a ticket here.</p>
+              </div>
+            )}
+            <nav className="stat-strip" aria-label="At a glance">
               {flights ? (
-                <>
-                  {' · '}
-                  <span className="hero-flight">
-                    <span className="pulse" aria-hidden="true" />
-                    {flights} run{flights === 1 ? '' : 's'} in flight
-                  </span>
-                </>
+                <a className="stat is-live" href="#/chat">
+                  <span className="pulse" aria-hidden="true" />
+                  {flights} run{flights === 1 ? '' : 's'} in flight
+                </a>
               ) : null}
-            </p>
+              <a className="stat" href="#/tasks">
+                {scheduled.length} task{scheduled.length === 1 ? '' : 's'} scheduled
+              </a>
+              {next?.nextRunAt ? (
+                <a className="stat" href="#/tasks" title={next.title}>
+                  {nextRunWords(next.nextRunAt, timezone)}
+                </a>
+              ) : null}
+              {memories ? (
+                <a className="stat" href="#/memory">
+                  {memories.length} memor{memories.length === 1 ? 'y' : 'ies'}
+                </a>
+              ) : null}
+            </nav>
           </header>
 
           {brandNew ? (
             <section className="home-section rise" aria-labelledby="start-h">
-              <div className="section-head">
-                <h2 id="start-h">Start here</h2>
-              </div>
+              <SectionHead id="start-h" title="Start here" />
               <p className="muted">Tap one. Vector takes it from there.</p>
-              <div className="prompt-grid">
+              <div className="prompt-chips">
                 {STARTER_PROMPTS.map((prompt) => (
                   <PromptChip key={prompt} text={prompt} onPick={pick} />
                 ))}
@@ -249,30 +326,20 @@ export function HomePage() {
             </section>
           ) : null}
 
-          <section className="home-section rise" aria-labelledby="now-h">
-            <div className="section-head">
-              <h2 id="now-h">Needs you</h2>
-              {visible.length ? <span className="count">{String(visible.length).padStart(2, '0')}</span> : null}
-            </div>
-            {visible.length ? (
+          {visible.length ? (
+            <section className="home-section rise" aria-labelledby="now-h">
+              <SectionHead id="now-h" title="Needs you" count={visible.length} />
               <ul className="tickets">
-                {visible.map((a) => (
-                  <Ticket key={a.id} action={a} lead={a.id === leadId} />
+                {lead ? <LeadTicket key={lead.id} action={lead} /> : null}
+                {rest.map((a) => (
+                  <TicketRow key={a.id} action={a} />
                 ))}
               </ul>
-            ) : (
-              <p className="quiet-note">
-                Clear. When Vector spots something it can finish for you — a bill, a renewal, a reply — it leaves a one-tap
-                ticket here.
-              </p>
-            )}
-          </section>
+            </section>
+          ) : null}
 
           <section className="home-section rise" aria-labelledby="panels-h">
-            <div className="section-head">
-              <h2 id="panels-h">Panels</h2>
-              {panels.length ? <span className="count">{String(panels.length).padStart(2, '0')}</span> : null}
-            </div>
+            <SectionHead id="panels-h" title="Panels" count={panels.length} />
             {panels.length ? (
               <ul className="panels">
                 {panels.map((p) => (
@@ -282,7 +349,7 @@ export function HomePage() {
             ) : (
               <>
                 <p className="quiet-note">Small live apps, built on request. Describe what you want to keep an eye on.</p>
-                <div className="prompt-grid">
+                <div className="prompt-chips">
                   <PromptChip text="Build me a panel that tracks my reading streak" onPick={pick} />
                 </div>
               </>
@@ -290,14 +357,17 @@ export function HomePage() {
           </section>
 
           <section className="home-section rise" aria-labelledby="projects-h">
-            <div className="section-head">
-              <h2 id="projects-h">Projects</h2>
-              {projects.length ? <span className="count">{String(projects.length).padStart(2, '0')}</span> : null}
-              <button type="button" className="btn btn-sm section-head-action" onClick={() => setCreating(true)}>
-                <Icon name="plus" size={15} />
-                New
-              </button>
-            </div>
+            <SectionHead
+              id="projects-h"
+              title="Projects"
+              count={projects.length}
+              action={
+                <button type="button" className="home-head-action label" onClick={() => setCreating(true)}>
+                  <Icon name="plus" size={14} />
+                  New
+                </button>
+              }
+            />
             {projects.length ? (
               <ul className="rows projects">
                 {projects.map((p) => (

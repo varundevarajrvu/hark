@@ -1,4 +1,4 @@
-import { memo, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Approval, ApprovalKind, HandoffStatus, Id, MessagePart } from '../../../shared/types.ts';
 import { cancelHandoff, decideApproval } from '../actions.ts';
 import { errorText, screenshotUrl } from '../api.ts';
@@ -148,13 +148,62 @@ const HANDOFF_TAG: Record<HandoffStatus, string> = {
   cancelled: 'Cancelled',
 };
 
-function hostOf(url: string): { host: string; path: string; secure: boolean } {
+function hostOf(url: string): { host: string; path: string; query: string; secure: boolean } {
   try {
     const u = new URL(url);
-    return { host: u.host, path: u.pathname === '/' ? '' : u.pathname + u.search, secure: u.protocol === 'https:' };
+    return { host: u.host, path: u.pathname === '/' ? '' : u.pathname, query: u.search, secure: u.protocol === 'https:' };
   } catch {
-    return { host: url, path: '', secure: false };
+    return { host: url, path: '', query: '', secure: false };
   }
+}
+
+/** Keep the start and the end of a string, drop the middle: "/v3/signin/ide…/identifier". */
+export function middleEllipsis(text: string, max: number): string {
+  if (text.length <= max) return text;
+  if (max <= 2) return '…';
+  const keep = max - 1;
+  const head = Math.ceil(keep * 0.55);
+  return `${text.slice(0, head)}…${text.slice(text.length - (keep - head))}`;
+}
+
+/** The path that fits after the host in `budget` characters: whole, or query folded, or cut in the middle. */
+export function fitPath(path: string, query: string, budget: number): string {
+  if (path.length + query.length <= budget) return path + query;
+  const tail = query ? '?…' : '';
+  if (path.length + tail.length <= budget) return path + tail;
+  return middleEllipsis(path, Math.max(6, budget - tail.length)) + tail;
+}
+
+/** One line in the browser chrome: the host in full, the path cut to fit. The whole URL is in the lightbox and the log. */
+function UrlLine({ url }: { url: string }) {
+  const ref = useRef<HTMLSpanElement>(null);
+  const [chars, setChars] = useState(26);
+  const at = hostOf(url);
+  useLayoutEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const measure = () => {
+      const style = getComputedStyle(el);
+      const advance = parseFloat(style.fontSize) * 0.6 || 7.2; // Geist Mono advance
+      const room = el.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight) - (at.secure ? 17 : 0);
+      setChars(Math.max(8, Math.floor(room / advance)));
+    };
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [at.secure]);
+  const path = fitPath(at.path, at.query, chars - at.host.length);
+  return (
+    <span className="fr-url" ref={ref} title={url}>
+      <span className="sr-only">Current page: {url}</span>
+      <span className="fr-url-face" aria-hidden="true">
+        {at.secure ? <Icon name="vault" size={12} /> : null}
+        <span className="fr-host">{at.host}</span>
+        {path ? <span className="fr-path">{path}</span> : null}
+      </span>
+    </span>
+  );
 }
 
 export function HandoffPart({ runId }: { runId: Id }) {
@@ -183,6 +232,7 @@ export function HandoffPart({ runId }: { runId: Id }) {
   const hasShot = run.screenshotVersion > 0 && brokenVersion !== run.screenshotVersion;
   const shot = screenshotUrl(run.id, run.screenshotVersion);
   const at = hostOf(run.url);
+  const ended = !live;
   const showLog = live || logOpen;
 
   const cancel = async () => {
@@ -198,22 +248,17 @@ export function HandoffPart({ runId }: { runId: Id }) {
   };
 
   return (
-    <section className={`fr fr-${run.status}`} aria-label={`Browser session: ${run.goal}`}>
+    <section className={`fr fr-${run.status}${ended ? ' is-ended' : ''}`} aria-label={`Browser session: ${run.goal}`}>
       <div className="fr-window on-ink">
         <div className="fr-chrome">
           <span className="fr-dot" aria-hidden="true" />
-          <span className="fr-url" title={run.url}>
-            <span className="sr-only">Current page: </span>
-            {run.url ? (
-              <>
-                {at.secure ? <Icon name="vault" size={12} /> : null}
-                <span className="fr-host">{at.host}</span>
-                <span className="fr-path">{at.path}</span>
-              </>
-            ) : (
+          {run.url ? (
+            <UrlLine url={run.url} />
+          ) : (
+            <span className="fr-url">
               <span className="fr-path">about:blank</span>
-            )}
-          </span>
+            </span>
+          )}
           <span className="fr-tag">{HANDOFF_TAG[run.status]}</span>
         </div>
         <div className="fr-sweep" aria-hidden="true" />
@@ -250,6 +295,12 @@ export function HandoffPart({ runId }: { runId: Id }) {
       {showLog ? (
         stepCount ? (
           <ol className={`fr-log${live ? ' is-live' : ''}`} ref={logRef} tabIndex={0} aria-label="Steps taken so far">
+            {!live && run.url ? (
+              <li className="fr-step fr-step-url">
+                <span className="fr-act">Last page</span>
+                <span className="fr-detail">{run.url}</span>
+              </li>
+            ) : null}
             {run.steps.map((step, i) => (
               <li key={step.index} className={`fr-step${live && i === stepCount - 1 ? ' is-newest' : ''}`}>
                 <time dateTime={step.at}>{formatTime(step.at, timezone)}</time>
@@ -272,7 +323,7 @@ export function HandoffPart({ runId }: { runId: Id }) {
       ) : null}
 
       {zoomed ? (
-        <Dialog title={at.host + at.path || 'Screenshot'} variant="lightbox" onClose={() => (setZoomed(false), setZoomIn(false))}>
+        <Dialog title={at.host || 'Screenshot'} variant="lightbox" onClose={() => (setZoomed(false), setZoomIn(false))}>
           <div className="lightbox-scroll">
             <button
               type="button"
@@ -284,6 +335,7 @@ export function HandoffPart({ runId }: { runId: Id }) {
               <img className="lightbox-img" src={shot} alt="Latest screenshot from the browser agent" />
             </button>
           </div>
+          {run.url ? <p className="lightbox-url">{run.url}</p> : null}
           <p className="label lightbox-hint">{zoomIn ? 'Drag to look around · tap to fit' : live ? 'Tap to zoom · updates live' : 'Tap to zoom'}</p>
         </Dialog>
       ) : null}

@@ -3,6 +3,7 @@ import { boot } from '../actions.ts';
 import { navigateFromOverlay, type Route } from '../router.ts';
 import { pendingApprovals, setState, toast, useStore } from '../store.ts';
 import { ApprovalCard, ConsentBar } from './cards.tsx';
+import { DEMO_NOTE } from './thread.tsx';
 import { Dialog, Icon, Mark, Toasts, type IconName } from './ui.tsx';
 
 interface NavItem {
@@ -113,7 +114,7 @@ function StatusChip() {
   const conn = useStore((s) => s.conn);
   let chip: { text: string; full: string; tone: 'quiet' | 'bad' } | null = null;
   if (conn === 'down') chip = { text: 'Offline', full: 'Connection lost. Reconnecting — live updates are paused.', tone: 'bad' };
-  else if (llm?.mock) chip = { text: 'Demo', full: 'Offline demo model — answers are scripted', tone: 'quiet' };
+  else if (llm?.mock) chip = { text: 'Demo', full: DEMO_NOTE, tone: 'quiet' };
   else if (llm && !llm.configured) chip = { text: 'No key', full: 'No Claude API credentials on the server — set ANTHROPIC_API_KEY', tone: 'bad' };
   if (!chip) return null;
   const { full, tone, text } = chip;
