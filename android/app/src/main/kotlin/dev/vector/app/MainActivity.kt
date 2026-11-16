@@ -216,6 +216,8 @@ class MainActivity : AppCompatActivity() {
         }
 
         override fun onPageStarted(view: WebView, url: String, favicon: Bitmap?) {
+            // A new document (reload, or navigation anywhere) never inherits speech from the old one.
+            speech.stopSpeaking()
             // shouldOverrideUrlLoading is not consulted for every kind of navigation (form POSTs,
             // for one). This is the backstop: the main frame never commits to another origin.
             if (url != "about:blank" && decideNavigation(server, url) != NavigationDecision.STAY) {
@@ -390,6 +392,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onPause() {
+        // Vector only talks while it is on screen.
+        speech.stopSpeaking()
         if (::web.isInitialized && !webDestroyed) web.onPause()
         // Persist the session cookie now: the process can be killed any time after this.
         CookieManager.getInstance().flush()
@@ -405,8 +409,8 @@ class MainActivity : AppCompatActivity() {
     }
 
     override fun onDestroy() {
+        speech.release()
         if (::web.isInitialized && !webDestroyed) {
-            speech.detach()
             webContainer.removeView(web)
             web.destroy()
         }

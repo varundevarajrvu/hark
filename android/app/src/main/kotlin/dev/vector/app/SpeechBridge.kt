@@ -20,8 +20,8 @@ import org.json.JSONTokener
 import java.util.Locale
 
 /**
- * Speech input for the page, through `window.VectorNative` (see SpeechProtocol.kt for the
- * wire contract).
+ * Speech in and out for the page, through `window.VectorNative` (see SpeechProtocol.kt for the
+ * wire contract): speech recognition, text to speech ([Speaker]) and a capabilities query.
  *
  * The page cannot use the Web Speech API in a WebView, so it asks the app instead. The app runs
  * the system speech recognizer ([RecognizerIntent.ACTION_RECOGNIZE_SPEECH]) as a separate
@@ -33,6 +33,9 @@ import java.util.Locale
  * additionally checks the origin and that the message comes from the main frame.
  *
  * Construct it while the activity is being created (it registers an activity-result launcher).
+ * The owner calls [stopSpeaking] when the activity pauses or the page goes away, [detach] when
+ * the WebView or the server origin changes, and [release] on destroy.
+ *
  * At most one recognizer request is in flight; any further request is answered `busy`. The
  * in-flight state lives only in this object, so a recreated activity or a restarted process
  * starts clean, and a recognizer result that arrives with no request waiting is dropped.
@@ -48,6 +51,7 @@ class SpeechBridge(private val activity: ComponentActivity) {
 
     private var pending: Pending? = null
     private var attachedTo: WebView? = null
+    private val speaker = Speaker(activity)
 
     /**
      * Exposes the bridge to [origin] in [web], replacing any listener installed earlier (for a
@@ -70,8 +74,21 @@ class SpeechBridge(private val activity: ComponentActivity) {
         }
     }
 
-    /** Removes the bridge and answers a request still in flight with `cancelled`. */
+    /** Stops any text to speech (the utterance is answered `tts.done`) and releases audio focus. */
+    fun stopSpeaking() = speaker.stop()
+
+    /** [detach], and shuts the text-to-speech engine down. */
+    fun release() {
+        detach()
+        speaker.shutdown()
+    }
+
+    /**
+     * Removes the bridge, stops speaking, and answers a recognizer request still in flight with
+     * `cancelled`.
+     */
     fun detach() {
+        speaker.stop()
         val web = attachedTo
         attachedTo = null
         if (web != null && WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
@@ -94,30 +111,54 @@ class SpeechBridge(private val activity: ComponentActivity) {
         if (Origin.of(sourceOrigin.toString()) != origin) return
         if (message.type != WebMessageCompat.TYPE_STRING) return
         val raw = message.data ?: return
-        if (raw.length > MAX_SPEECH_MESSAGE_CHARS) return
+        // The per-type caps are applied by parseBridgeRequest; this is the outer bound.
+        if (raw.length > MAX_TTS_MESSAGE_CHARS) return
         val fields = decodeObject(raw) ?: return
-        val id = speechStartId(fields) ?: return
-        start(id, reply)
+        when (val request = parseBridgeRequest(fields, raw.length) ?: return) {
+            is BridgeRequest.SpeechStart -> startRecognizer(request.id, reply)
+            is BridgeRequest.Capabilities -> capabilities(request.id, reply)
+            is BridgeRequest.TtsSpeak -> speaker.speak(
+                id = request.id,
+                text = request.text,
+                canSpeak = ::isResumed,
+                reply = { send(reply, it) },
+            )
+            BridgeRequest.TtsStop -> speaker.stop()
+        }
     }
 
-    private fun start(id: String, reply: JavaScriptReplyProxy) {
+    private fun isResumed() = activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)
+
+    private fun recognizerIntent(): Intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
+        .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
+        .putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
+        .putExtra(RecognizerIntent.EXTRA_PROMPT, activity.getString(R.string.speech_prompt))
+        .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+
+    /**
+     * `speech`: a recognizer activity resolves (needs the `<queries>` entry on Android 11+).
+     * `tts`: an engine initialised; answered once it has, or has failed or timed out.
+     */
+    private fun capabilities(id: String, reply: JavaScriptReplyProxy) {
+        val speech = recognizerIntent().resolveActivity(activity.packageManager) != null
+        speaker.whenReady { tts -> send(reply, CapabilitiesReply(id, speech = speech, tts = tts)) }
+    }
+
+    private fun startRecognizer(id: String, reply: JavaScriptReplyProxy) {
         if (pending != null) {
             send(reply, SpeechReply.Error(id, SpeechError.BUSY))
             return
         }
         // Only start the recognizer on top of a visible, focused app.
-        if (!activity.lifecycle.currentState.isAtLeast(Lifecycle.State.RESUMED)) {
+        if (!isResumed()) {
             send(reply, SpeechReply.Error(id, SpeechError.CANCELLED))
             return
         }
-        val intent = Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH)
-            .putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM)
-            .putExtra(RecognizerIntent.EXTRA_LANGUAGE, Locale.getDefault().toLanguageTag())
-            .putExtra(RecognizerIntent.EXTRA_PROMPT, activity.getString(R.string.speech_prompt))
-            .putExtra(RecognizerIntent.EXTRA_MAX_RESULTS, 1)
+        // The app must not talk over the user.
+        speaker.stop()
         pending = Pending(id, reply)
         try {
-            launcher.launch(intent)
+            launcher.launch(recognizerIntent())
         } catch (_: ActivityNotFoundException) {
             pending = null
             send(reply, SpeechReply.Error(id, SpeechError.UNAVAILABLE))
@@ -141,7 +182,7 @@ class SpeechBridge(private val activity: ComponentActivity) {
         send(request.reply, speechReplyFor(request.id, outcome, matches))
     }
 
-    private fun send(reply: JavaScriptReplyProxy, message: SpeechReply) {
+    private fun send(reply: JavaScriptReplyProxy, message: BridgeReply) {
         // Always true when a reply proxy exists; checked so the call is visibly guarded.
         if (!WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) return
         try {

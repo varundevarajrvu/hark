@@ -6,6 +6,20 @@
     <uses-permission android:name="android.permission.INTERNET" />
 
     <!--
+        Package visibility (Android 11+): without these the app cannot see the phone's
+        text-to-speech engines (TextToSpeech finds none) or tell whether a speech recognizer is
+        installed. They grant no access to anything; they only make these services visible.
+    -->
+    <queries>
+        <intent>
+            <action android:name="android.intent.action.TTS_SERVICE" />
+        </intent>
+        <intent>
+            <action android:name="android.speech.action.RECOGNIZE_SPEECH" />
+        </intent>
+    </queries>
+
+    <!--
         Cleartext is allowed app-wide on purpose: people run Vector at http://192.168.x.x on home
         Wi-Fi, and a network security config cannot whitelist addresses chosen at runtime. The
         setup screen warns whenever the chosen address is plain http. See docs/android.md.

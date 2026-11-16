@@ -98,35 +98,82 @@ when switching between sources.
 - **Change server.** Long-press the launcher icon → **Change server**. Also on the failure
   screen.
 
-## Voice input
+## Voice input and spoken replies
 
-Android's WebView has no Web Speech API, so the app lends the page the phone's own speech
-recognizer. When you tap the page's mic button, the app opens the system speech dialog
-("Tell Vector what to do"); when you finish, the recognised text goes into the page.
+Android's WebView has no Web Speech API for recognition and an unreliable one for speech
+output, so the app lends the page the phone's own speech services: the system speech
+recognizer to listen, and the system text-to-speech engine to read Vector's replies aloud.
+
+### Listening
+
+When you tap the page's mic button, the app opens the system speech dialog ("Tell Vector what
+to do"); when you finish, the recognised text goes into the page. Any speech the app is playing
+stops first, so Vector never talks over you.
 
 - **Where the audio goes.** The system speech service on the phone (usually Google's, or
   whichever recognizer the phone is set to use) records and transcribes your voice, under its
   own privacy terms; it may process the audio on the device or in its cloud. The Vector app
   and your Vector server never receive audio, only the resulting text.
 - **No microphone permission.** The app does not request `RECORD_AUDIO`; the speech service
-  holds the microphone, not Vector. The app's permissions are unchanged.
+  holds the microphone, not Vector.
 - **Language.** The phone's default language.
-- **When there is no mic button.** If the phone has no speech recognizer, the page is told
-  `unavailable`. If the phone's WebView is too old to support the bridge (it needs web message
-  listener support, present in current Android System WebView releases), the app exposes
-  nothing and the page hides the button.
 
-How the page talks to the app: the app registers a `VectorNative` object with androidx.webkit's
+### Speaking
+
+When the page asks, the app reads text aloud with the phone's text-to-speech engine (Settings
+→ System → Languages → Text-to-speech output; usually Speech Services by Google).
+
+- **What is spoken where.** The text is handed to that engine on the phone and played on the
+  phone. The Vector app sends it nowhere else; whether the engine itself uses a network voice
+  is up to the engine and its settings. Nothing is recorded.
+- **Language.** The phone's default language, or the engine's default voice if it has none for
+  that language.
+- **Audio.** Played as assistant speech. While talking, the app takes short-term audio focus,
+  so music or a podcast ducks and comes back afterwards; a phone call or another app taking
+  over audio stops it.
+- **When it stops.** When a new reply is spoken (it replaces the old one), when the page asks,
+  when you start talking, when the app leaves the screen, when the page reloads or leaves your
+  server, when you switch servers, and when the app closes. Vector never talks in the
+  background.
+- **No new permission.** Text to speech needs none.
+
+### Package visibility
+
+From Android 11 an app only sees the other apps it declares interest in. The manifest therefore
+has a `<queries>` element naming two intent actions: `android.intent.action.TTS_SERVICE`
+(without it `TextToSpeech` finds no engine at all) and `android.speech.action.RECOGNIZE_SPEECH`
+(so the app can tell the page whether a recognizer is installed). These are not permissions:
+they grant no access and the user is never asked; they only make those services visible to the
+app.
+
+### The bridge
+
+The app registers a `VectorNative` object with androidx.webkit's
 `WebViewCompat.addWebMessageListener`, scoped to exactly the saved server origin (scheme, host
-and port), so pages on any other origin, and subframes, cannot reach it. The page posts the
-string `{"type":"speech.start","id":"<id>"}` and gets one reply on the same channel:
-`{"type":"speech.result","id":"<id>","text":"…"}` or
-`{"type":"speech.error","id":"<id>","error":"cancelled"|"no_match"|"unavailable"|"busy"}`.
-Only one request runs at a time (others get `busy`); a request made while the app is not in
-the foreground is answered `cancelled`. If Android recreates the screen while the speech dialog
-is open, the reloaded page starts fresh and the late result is dropped. Malformed messages, ids
-longer than 64 characters and messages from subframes are ignored. Switching to another server
-re-registers the bridge for the new origin only.
+and port), so pages on any other origin, and subframes, cannot reach it. If the phone's WebView
+is too old to support web message listeners, the app exposes nothing and the page hides its
+voice controls. Messages are JSON strings; each request with an `id` gets one reply with the
+same `id` on the same channel.
+
+| Page sends | App answers |
+| --- | --- |
+| `{"type":"capabilities","id":…}` | `{"type":"capabilities","id":…,"speech":bool,"tts":bool}`: `speech` if a recognizer is installed; `tts` once an engine has started (or failed, or not answered within 8 s) |
+| `{"type":"speech.start","id":…}` | `{"type":"speech.result","id":…,"text":…}` or `{"type":"speech.error","id":…,"error":"cancelled"\|"no_match"\|"unavailable"\|"busy"}` |
+| `{"type":"tts.speak","id":…,"text":…}` (text up to 4000 characters) | `{"type":"tts.done","id":…}` when finished, stopped or replaced, or `{"type":"tts.error","id":…,"error":"unavailable"\|"busy"}` |
+| `{"type":"tts.stop"}` | nothing itself; the utterance being spoken answers `tts.done` |
+
+- `speech.start`: one recognition at a time (others get `busy`); a request while the app is
+  not in the foreground gets `cancelled`. If Android recreates the screen while the speech
+  dialog is open, the reloaded page starts fresh and the late result is dropped.
+- `tts.speak`: `unavailable` means there is no engine, it failed to start or it failed on this
+  text; `busy` means the app cannot speak right now (not in the foreground, or audio focus was
+  refused, typically during a call). Text longer than the engine's input limit is spoken in
+  sentence-sized pieces with a single `tts.done` at the end. Empty text answers `tts.done` at
+  once.
+- Ignored without a reply: anything that is not a JSON object of these shapes, ids that are
+  not 1–64 characters, `tts.speak` text over 4000 characters, messages over 1 KiB (24 KiB for
+  `tts.speak`, which allows for escaped text) and messages from subframes. Switching to another
+  server re-registers the bridge for the new origin only.
 
 ## What it does not do
 
@@ -135,7 +182,7 @@ re-registers the bridge for the new origin only.
   next step and is not in this version.
 - No notifications, camera, location, file upload or downloads. The page's own microphone
   requests (`getUserMedia`) are denied; voice input goes through the system recognizer instead
-  (see [Voice input](#voice-input)).
+  (see [Voice input and spoken replies](#voice-input-and-spoken-replies)).
 - No analytics, crash reporting, ads or third-party SDKs. The only dependencies are AndroidX
   core, activity, appcompat and webkit.
 
@@ -156,12 +203,16 @@ re-registers the bridge for the new origin only.
   `file:`, `content:`, `javascript:` and every other scheme are refused, as are URLs carrying
   credentials (`http://server@evil.example`).
 - **WebView hardening.** No `addJavascriptInterface` object is exposed to the page. The only
-  bridge is the voice-input `VectorNative` message listener, which WebView exposes to the saved
-  server origin alone and which can do one thing: open the system speech dialog. File and content
+  bridge is the voice `VectorNative` message listener, which WebView exposes to the saved
+  server origin alone and which can do three things: report whether speech services exist, open
+  the system speech dialog, and speak or stop speaking text. File and content
   access, geolocation, mixed content and third-party cookies are off; Safe Browsing is on;
   remote debugging is enabled only in debug builds.
 - **Permissions.** The app requests `INTERNET` and nothing else; in particular no microphone
-  permission, because voice input runs in the system speech recognizer. The manifest also contains
+  permission, because voice input runs in the system speech recognizer, and none for text to
+  speech, which needs none. The `<queries>` entries for text to speech and speech recognition
+  are package-visibility declarations, not permissions (see
+  [Package visibility](#package-visibility)). The manifest also contains
   `dev.vector.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`, which AndroidX declares for the
   app's own use (signature-level, private to this app); it grants no access to anything and
   the user is never asked for it.
