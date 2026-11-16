@@ -57,7 +57,7 @@ build-tools `37.0.0`); point `ANDROID_HOME` at the SDK or put `sdk.dir=…` in
 
 ```sh
 cd android
-./gradlew test             # JVM unit tests for the address and navigation logic
+./gradlew test             # JVM unit tests: address/navigation logic and the speech protocol
 ./gradlew lint
 ./gradlew assembleDebug    # app/build/outputs/apk/debug/app-debug.apk
 ./gradlew assembleRelease  # app/build/outputs/apk/release/app-release-unsigned.apk
@@ -98,14 +98,46 @@ when switching between sources.
 - **Change server.** Long-press the launcher icon → **Change server**. Also on the failure
   screen.
 
+## Voice input
+
+Android's WebView has no Web Speech API, so the app lends the page the phone's own speech
+recognizer. When you tap the page's mic button, the app opens the system speech dialog
+("Tell Vector what to do"); when you finish, the recognised text goes into the page.
+
+- **Where the audio goes.** The system speech service on the phone (usually Google's, or
+  whichever recognizer the phone is set to use) records and transcribes your voice, under its
+  own privacy terms; it may process the audio on the device or in its cloud. The Vector app
+  and your Vector server never receive audio, only the resulting text.
+- **No microphone permission.** The app does not request `RECORD_AUDIO`; the speech service
+  holds the microphone, not Vector. The app's permissions are unchanged.
+- **Language.** The phone's default language.
+- **When there is no mic button.** If the phone has no speech recognizer, the page is told
+  `unavailable`. If the phone's WebView is too old to support the bridge (it needs web message
+  listener support, present in current Android System WebView releases), the app exposes
+  nothing and the page hides the button.
+
+How the page talks to the app: the app registers a `VectorNative` object with androidx.webkit's
+`WebViewCompat.addWebMessageListener`, scoped to exactly the saved server origin (scheme, host
+and port), so pages on any other origin, and subframes, cannot reach it. The page posts the
+string `{"type":"speech.start","id":"<id>"}` and gets one reply on the same channel:
+`{"type":"speech.result","id":"<id>","text":"…"}` or
+`{"type":"speech.error","id":"<id>","error":"cancelled"|"no_match"|"unavailable"|"busy"}`.
+Only one request runs at a time (others get `busy`); a request made while the app is not in
+the foreground is answered `cancelled`. If Android recreates the screen while the speech dialog
+is open, the reloaded page starts fresh and the late result is dropped. Malformed messages, ids
+longer than 64 characters and messages from subframes are ignored. Switching to another server
+re-registers the bridge for the new origin only.
+
 ## What it does not do
 
 - **No approvals while the app is in the background.** The live stream only runs while the
   app is open. Being notified when the agent wants approval needs a push channel; that is the
   next step and is not in this version.
-- No notifications, camera, microphone, location, file upload or downloads.
+- No notifications, camera, location, file upload or downloads. The page's own microphone
+  requests (`getUserMedia`) are denied; voice input goes through the system recognizer instead
+  (see [Voice input](#voice-input)).
 - No analytics, crash reporting, ads or third-party SDKs. The only dependencies are AndroidX
-  core, activity and appcompat.
+  core, activity, appcompat and webkit.
 
 ## Security notes
 
@@ -123,10 +155,13 @@ when switching between sources.
   host and port load in the app. Other http(s) links open in your browser; `intent:`,
   `file:`, `content:`, `javascript:` and every other scheme are refused, as are URLs carrying
   credentials (`http://server@evil.example`).
-- **WebView hardening.** No JavaScript interface is exposed to the page; file and content
+- **WebView hardening.** No `addJavascriptInterface` object is exposed to the page. The only
+  bridge is the voice-input `VectorNative` message listener, which WebView exposes to the saved
+  server origin alone and which can do one thing: open the system speech dialog. File and content
   access, geolocation, mixed content and third-party cookies are off; Safe Browsing is on;
   remote debugging is enabled only in debug builds.
-- **Permissions.** The app requests `INTERNET` and nothing else. The manifest also contains
+- **Permissions.** The app requests `INTERNET` and nothing else; in particular no microphone
+  permission, because voice input runs in the system speech recognizer. The manifest also contains
   `dev.vector.app.DYNAMIC_RECEIVER_NOT_EXPORTED_PERMISSION`, which AndroidX declares for the
   app's own use (signature-level, private to this app); it grants no access to anything and
   the user is never asked for it.

@@ -30,4 +30,5 @@
     <string name="shortcut_change_server">Change server</string>
     <string name="no_browser">No browser is installed to open that link.</string>
     <string name="loading_page">Loading</string>
+    <string name="speech_prompt">Tell Vector what to do</string>
 </resources>

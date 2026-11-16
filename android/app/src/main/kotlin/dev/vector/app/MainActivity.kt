@@ -50,6 +50,12 @@ class MainActivity : AppCompatActivity() {
     private lateinit var failureBody: TextView
     private lateinit var failureDetail: TextView
 
+    /** Speech input for the page (`window.VectorNative`); see SpeechBridge. */
+    private val speech = SpeechBridge(this)
+
+    /** Set after switching to a new server so the old server's pages leave the history. */
+    private var clearHistoryOnNextPage = false
+
     /** Set when the current main-frame load failed; cleared by Retry. */
     private var loadFailed = false
     private var firstPageShown = false
@@ -178,7 +184,9 @@ class MainActivity : AppCompatActivity() {
             javaScriptCanOpenWindowsAutomatically = false
             mediaPlaybackRequiresUserGesture = true
         }
-        // No addJavascriptInterface anywhere: the page gets no bridge into the app.
+        // No addJavascriptInterface anywhere. The only bridge is SpeechBridge: a web message
+        // listener that WebView exposes to the saved server origin alone.
+        speech.attach(web, server)
 
         CookieManager.getInstance().apply {
             setAcceptCookie(true)
@@ -218,6 +226,10 @@ class MainActivity : AppCompatActivity() {
 
         override fun onPageFinished(view: WebView, url: String) {
             CookieManager.getInstance().flush()
+            if (clearHistoryOnNextPage && decideNavigation(server, url) == NavigationDecision.STAY) {
+                clearHistoryOnNextPage = false
+                view.clearHistory()
+            }
             if (loadFailed) return
             firstPageShown = true
             progress.visibility = View.GONE
@@ -263,6 +275,7 @@ class MainActivity : AppCompatActivity() {
         override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
             // The renderer crashed or was killed for memory. This WebView is unusable now; throw
             // it away and rebuild the screen instead of letting the whole app die.
+            speech.detach()
             webContainer.removeView(view)
             view.destroy()
             webDestroyed = true
@@ -354,6 +367,23 @@ class MainActivity : AppCompatActivity() {
 
     private var webDestroyed = false
 
+    /**
+     * Normally a new server is opened by SetupActivity in a fresh task, so this activity is
+     * rebuilt for it. If this instance is still alive when the saved origin has changed, switch it
+     * over in place: re-scope the speech bridge to the new origin and load it.
+     */
+    override fun onStart() {
+        super.onStart()
+        if (!::server.isInitialized || !::web.isInitialized || webDestroyed) return
+        val saved = ServerStore.load(this) ?: return
+        if (saved == server) return
+        server = saved
+        speech.attach(web, server)
+        loadFailed = false
+        clearHistoryOnNextPage = true
+        web.loadUrl(server.toString())
+    }
+
     override fun onResume() {
         super.onResume()
         if (::web.isInitialized && !webDestroyed) web.onResume()
@@ -376,6 +406,7 @@ class MainActivity : AppCompatActivity() {
 
     override fun onDestroy() {
         if (::web.isInitialized && !webDestroyed) {
+            speech.detach()
             webContainer.removeView(web)
             web.destroy()
         }
